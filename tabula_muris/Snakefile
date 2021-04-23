@@ -718,21 +718,20 @@ rule filter_diff_spl_significant:
             else:
                 raise Exception("strand not implemented")
         diff_spl_cluster["Region"] = diff_spl_cluster.apply(check_region, axis=1)
-        print(diff_spl_cluster.Region.value_counts())
         diff_spl_cluster.max_abs_delta_psi = diff_spl_cluster.max_abs_delta_psi.round(decimals=3)
 
-        def signif(x, p):
-            x = np.asarray(x)
-            x_positive = np.where(np.isfinite(x) & (x != 0), np.abs(x), 10**(p-1))
-            mags = 10 ** (p - 1 - np.floor(np.log10(x_positive)))
-            return np.round(x * mags) / mags
+        #def signif(x, p):
+        #    x = np.asarray(x)
+        #    x_positive = np.where(np.isfinite(x) & (x != 0), np.abs(x), 10**(p-1))
+        #    mags = 10 ** (p - 1 - np.floor(np.log10(x_positive)))
+        #    return np.round(x * mags) / mags
 
-        diff_spl_cluster.p_value = signif(diff_spl_cluster.p_value.values, 3)
-        diff_spl_cluster.p_value_adj = signif(diff_spl_cluster.p_value_adj.values, 3)
+        #diff_spl_cluster.p_value = signif(diff_spl_cluster.p_value.values, 3)
+        #diff_spl_cluster.p_value_adj = signif(diff_spl_cluster.p_value_adj.values, 3)
 
         diff_spl_cluster.to_csv(
             output[0], "\t",
-            columns=["gene_id", "gene_name", "p_value", "p_value_adj", "max_abs_delta_psi", "chromosome", "start", "end", "Annotated", "Region", "diff_exp_rank"],
+            columns=["gene_id", "gene_name", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "p_value", "chromosome", "start", "end"],
         )
 
 
