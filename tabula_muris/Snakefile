@@ -130,14 +130,13 @@ cell_type_order = ["(1) pro-B", "(2) pre-B", "(3) immature B", "(4) naive B"]
 
 rule all:
     input:
+        expand("output/differential_splicing/tissue_cell_type/{tct[0]}/{tct[1]}/splicing.significant.tsv", tct=tissue_cell_type_pairs),
         "output/adata_cellxgene.h5ad",
         expand("output/coverage_track/tct/{tct[0]}/{tct[1]}/coverage.bw", tct=tissue_cell_type_pairs_including_singletons),
         "output/differential_splicing/tissue_cell_type/Marrow/merged_significant_all.svg",
-        #'output/differential_splicing/tissue_cell_type/marker_introns.svg',
         "output/dimensionality_reduction/marrow/classification_score.svg",
         expand("output/plots/{gene}.svg", gene=genes_to_plot),
         expand("output/plots/{intron}.svg", intron=introns_to_plot),
-        expand("output/differential_splicing/tissue_cell_type/{tct[0]}/{tct[1]}/splicing.significant.tsv", tct=tissue_cell_type_pairs),
         expand("output/comparison/marrow_b/{label}.svg", label=labels),
         "output/comparison/mg_3_38_F/cell_ontology_class.svg",
         expand("output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_all.svg", tissue=pd.unique([t for t, ct in tissue_cell_type_pairs])),
@@ -691,7 +690,7 @@ rule filter_diff_spl_significant:
         print(diff_spl_cluster.Annotated.value_counts())
         def get_diff_exp_rank(row_cluster):
             try:
-                return diff_exp.loc[row_cluster.gene_name].ranking
+                return diff_exp.loc[row_cluster.gene_id].ranking
             except KeyError:
                 return np.nan
         diff_spl_cluster["diff_exp_rank"] = diff_spl_cluster.apply(get_diff_exp_rank, axis=1)
