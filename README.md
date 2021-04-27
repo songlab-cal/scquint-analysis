@@ -19,4 +19,5 @@ Our results:
 - [AnnData data objects](https://figshare.com/articles/dataset/scQuint_data_objects_-_Mouse_primary_motor_cortex_BICCN_/14471754)
 
 ### Citation
-TODO
+Benegas, G., Fischer, J., Song., Y.S. Robust and annotation-free analysis of isoform variation using short-read scRNA-seq data. 
+[bioRxiv preprint.](https://www.biorxiv.org/content/10.1101/2021.04.27.441683v1)
