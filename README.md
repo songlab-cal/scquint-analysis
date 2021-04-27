@@ -1,0 +1,22 @@
+# Alternative splicing analysis of scRNA-seq datasets with [scQuint](https://github.com/songlab-cal/scquint)
+
+## Tabula Muris
+Data source: Tabula Muris Consortium. "Single-cell transcriptomics of 20 mouse organs creates a Tabula Muris." Nature 562.7727 (2018): 367-372.
+
+Our results:
+- [Differentially spliced genes for each cell type](https://github.com/songlab-cal/scquint-analysis/tree/main/tabula_muris/output/differential_splicing/tissue_cell_type)
+- [cellxgene cell browser](https://scquint.ds.czbiohub.org/tabula-muris/)
+- [UCSC Genome Browser](https://genome.ucsc.edu/s/gbenegas/tabulamuris)
+- [AnnData data objects](https://figshare.com/articles/dataset/scQuint_data_objects_-_Tabula_Muris/14471904)
+
+## BICCN Mouse primary motor cortex
+Data source:  Yao, Zizhen, et al. "An integrated transcriptomic and epigenomic atlas of mouse primary motor cortex cell types." Biorxiv (2020).
+
+Our results:
+- [Differentially spliced genes for each cell type](https://github.com/songlab-cal/scquint-analysis/tree/main/cortex/output/diff_spl/subclass_label)
+- [cellxgene cell browser](https://scquint.ds.czbiohub.org/BICCN-mouse-primary-motor-cortex/)
+- [UCSC Genome Browser](https://genome.ucsc.edu/s/gbenegas/primarymotorcortex)
+- [AnnData data objects](https://figshare.com/articles/dataset/scQuint_data_objects_-_Mouse_primary_motor_cortex_BICCN_/14471754)
+
+### Citation
+TODO
