@@ -83,7 +83,7 @@ sample_srr = sample_srr[sample_srr.cell.isin(sample_ids)]
 
 
 quantifications_mg_individual = ["gene-expression", "kallisto", "bins-nmf", "introns-shared-acceptor"]
-quantifications_mg_individual_expanded = ["gene-expression", "kallisto", "bins-nmf", "exons", "introns-gene", "introns-transitive", "SE", "introns-shared-donor", "introns-shared-acceptor"]
+quantifications_mg_individual_expanded = ["gene-expression", "kallisto", "bins-nmf", "exons", "introns-gene", "introns-transitive", "SE", "SE-shared-donor", "SE-shared-acceptor", "introns-shared-acceptor"]
 
 motif1 = "AAGCAGTGGTATCAACGCAGAGT"
 motif2 = "ACTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
@@ -1388,12 +1388,12 @@ rule clustering_patterns_comparison_quantitative_plot:
                 x="Method",
                 y=metric,
                 data=df,
-                order=["random", "gene-expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "SE", "scQuint"],
+                order=["random", "gene-expression", "kallisto", "LeafCutter", "SE", "SE-shared-donor", "SE-shared-acceptor", "scQuint"],
                 #order=["random", "gene-expression", "LeafCutter", "SE", "scQuint"],
                 ci='sd',
                 palette="Accent",
                 row="Cell type",
-                col="Prediction",
+                col="Prediction" if metric != "dist_logratio" else None,
                 #kind="bar",
                 kind="point", join=False,
                 margin_titles=True,
@@ -1489,6 +1489,164 @@ rule quantify_SE:
             for transcript_id, introns_t in zip(transcripts_g, introns_g):
                 n = len(introns_t)
                 positions = var.loc[introns_t].position.values
+                index.append([gene_id, transcript_id])
+                intron_summation_data.append(np.ones(n, dtype=float))
+                intron_summation_row_ind.append(np.full(n, row))
+                intron_summation_col_ind.append(positions)
+                row += 1
+
+        intron_summation_data = np.concatenate(intron_summation_data)
+        intron_summation_row_ind = np.concatenate(intron_summation_row_ind)
+        intron_summation_col_ind = np.concatenate(intron_summation_col_ind)
+        intron_summation = sp_sparse.csr_matrix((intron_summation_data, (intron_summation_row_ind, intron_summation_col_ind)), shape=(row, len(var)))
+        print("intron_summation.shape: ", intron_summation.shape)
+        X = (adata_spl.X @ intron_summation.T).tocsr()
+        print(X.shape)
+        var = pd.DataFrame(index, columns=["gene_id", "transcript_id"])
+        var["cluster"] = relabel(var.gene_id)
+        adata = anndata.AnnData(X=X, obs=adata_spl.obs, var=var)
+        print(adata.shape)
+        adata = filter_min_cells_per_feature(adata, 30)
+        print(adata.shape)
+        adata.var["original_cluster"] = adata.var.cluster
+        adata.write(output[0], compression="gzip")
+
+
+rule quantify_SE_shared_acceptor:
+    input:
+        "output/quantification/introns-transitive/adata_annotated.h5ad",
+        "output/SE_new.gtf",
+    output:
+        "output/quantification/SE-shared-acceptor/adata_annotated.h5ad",
+    run:
+        adata_spl = anndata.read_h5ad(input[0])
+        print(adata_spl.shape)
+        var = adata_spl.var.copy()
+        var["position"] = np.arange(len(var))
+        var["id"] = var.chromosome.astype(str) + ":" + var.start.astype(str) + "-" + var.end.astype(str)
+        var = var.set_index("id")
+
+        df = pd.read_csv(
+            input[1], '\t', header=None, comment="#",
+            names=['chromosome', 'source', 'feature', 'start', 'end', 'score', 'strand', 'frame', 'attribute'],
+        )
+        print(df.shape)
+        df = df[df.feature=="exon"]
+        print(df.shape)
+        df['gene_id'] = df.attribute.str.extract(r'gene_id "([^;]*)";')
+        df['transcript_id'] = df.attribute.str.extract(r'transcript_id "([^;]*)";')
+        print(df)
+
+        index = []
+        intron_summation_data = []
+        intron_summation_row_ind = []
+        intron_summation_col_ind = []
+
+        row = 0
+
+        for gene_id, exons_g in df.groupby("gene_id"):
+            strand = exons_g.strand.values[0]
+            introns_g = []
+            transcripts_g = []
+            for transcript_id, exons_t in exons_g.groupby("transcript_id"):
+                transcripts_g.append(transcript_id)
+                introns_t = [f"{e1[0]}:{e1[2]+1}-{e2[1]}" for e1, e2 in pairwise(exons_t.sort_values(["start", "end"])[["chromosome", "start", "end"]].values)]
+                introns_g.append(introns_t)
+            introns_g_flat = np.concatenate(introns_g)
+            n_matches = var.index.isin(introns_g_flat).sum()
+            if n_matches != 3: continue
+            for transcript_id, introns_t in zip(transcripts_g, introns_g):
+                n = 1
+                if len(introns_t) > 1:
+                    if strand == "+":
+                        introns_t_filt = introns_t[1:]
+                    elif strand == "-":
+                        introns_t_filt = introns_t[:-1]
+                    else:
+                        raise Exception(f"strand {strand} not implemented")
+                else:
+                    introns_t_filt = introns_t
+                positions = var.loc[introns_t_filt].position.values
+                assert len(positions) == 1
+                index.append([gene_id, transcript_id])
+                intron_summation_data.append(np.ones(n, dtype=float))
+                intron_summation_row_ind.append(np.full(n, row))
+                intron_summation_col_ind.append(positions)
+                row += 1
+
+        intron_summation_data = np.concatenate(intron_summation_data)
+        intron_summation_row_ind = np.concatenate(intron_summation_row_ind)
+        intron_summation_col_ind = np.concatenate(intron_summation_col_ind)
+        intron_summation = sp_sparse.csr_matrix((intron_summation_data, (intron_summation_row_ind, intron_summation_col_ind)), shape=(row, len(var)))
+        print("intron_summation.shape: ", intron_summation.shape)
+        X = (adata_spl.X @ intron_summation.T).tocsr()
+        print(X.shape)
+        var = pd.DataFrame(index, columns=["gene_id", "transcript_id"])
+        var["cluster"] = relabel(var.gene_id)
+        adata = anndata.AnnData(X=X, obs=adata_spl.obs, var=var)
+        print(adata.shape)
+        adata = filter_min_cells_per_feature(adata, 30)
+        print(adata.shape)
+        adata.var["original_cluster"] = adata.var.cluster
+        adata.write(output[0], compression="gzip")
+
+
+rule quantify_SE_shared_donor:
+    input:
+        "output/quantification/introns-transitive/adata_annotated.h5ad",
+        "output/SE_new.gtf",
+    output:
+        "output/quantification/SE-shared-donor/adata_annotated.h5ad",
+    run:
+        adata_spl = anndata.read_h5ad(input[0])
+        print(adata_spl.shape)
+        var = adata_spl.var.copy()
+        var["position"] = np.arange(len(var))
+        var["id"] = var.chromosome.astype(str) + ":" + var.start.astype(str) + "-" + var.end.astype(str)
+        var = var.set_index("id")
+
+        df = pd.read_csv(
+            input[1], '\t', header=None, comment="#",
+            names=['chromosome', 'source', 'feature', 'start', 'end', 'score', 'strand', 'frame', 'attribute'],
+        )
+        print(df.shape)
+        df = df[df.feature=="exon"]
+        print(df.shape)
+        df['gene_id'] = df.attribute.str.extract(r'gene_id "([^;]*)";')
+        df['transcript_id'] = df.attribute.str.extract(r'transcript_id "([^;]*)";')
+        print(df)
+
+        index = []
+        intron_summation_data = []
+        intron_summation_row_ind = []
+        intron_summation_col_ind = []
+
+        row = 0
+
+        for gene_id, exons_g in df.groupby("gene_id"):
+            strand = exons_g.strand.values[0]
+            introns_g = []
+            transcripts_g = []
+            for transcript_id, exons_t in exons_g.groupby("transcript_id"):
+                transcripts_g.append(transcript_id)
+                introns_t = [f"{e1[0]}:{e1[2]+1}-{e2[1]}" for e1, e2 in pairwise(exons_t.sort_values(["start", "end"])[["chromosome", "start", "end"]].values)]
+                introns_g.append(introns_t)
+            introns_g_flat = np.concatenate(introns_g)
+            n_matches = var.index.isin(introns_g_flat).sum()
+            if n_matches != 3: continue
+            for transcript_id, introns_t in zip(transcripts_g, introns_g):
+                n = 1
+                if len(introns_t) > 1:
+                    if strand == "-":
+                        introns_t_filt = introns_t[1:]
+                    elif strand == "+":
+                        introns_t_filt = introns_t[:-1]
+                    else:
+                        raise Exception(f"strand {strand} not implemented")
+                else:
+                    introns_t_filt = introns_t
+                positions = var.loc[introns_t_filt].position.values
+                assert len(positions) == 1
                 index.append([gene_id, transcript_id])
                 intron_summation_data.append(np.ones(n, dtype=float))
                 intron_summation_row_ind.append(np.full(n, row))
