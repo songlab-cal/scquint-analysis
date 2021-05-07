@@ -134,7 +134,8 @@ rule all:
     input:
         #"output/quantification/SE/adata_annotated.h5ad",
         #"output/comparison/mg_3_38_F/classification_results.tsv",
-        "output/comparison/mg_3_38_F/classification_results.svg",
+        #"output/comparison/mg_3_38_F/classification_results.svg",
+        "output/comparison/mg_3_38_F/classification_results_plots/",
         #expand("output/differential_splicing/tissue_cell_type/{tct[0]}/{tct[1]}/splicing.significant.tsv", tct=tissue_cell_type_pairs),
         #"output/adata_cellxgene.h5ad",
         #expand("output/coverage_track/tct/{tct[0]}/{tct[1]}/coverage.bw", tct=tissue_cell_type_pairs_including_singletons),
@@ -575,6 +576,36 @@ rule dimensionality_reduction_mg_3_38_F_expression:
         sorted_index = sorted(adata.obs.index)
         adata = adata[sorted_index]
         sc.pp.filter_genes(adata, min_cells=50)
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
+        X = adata.X.toarray()
+        latent = PCA(n_components=int(wildcards["k"])).fit_transform(X)
+        np.savetxt(output[0], latent)
+
+
+rule dimensionality_reduction_all_pca:
+    input:
+        "output/quantification/{quantification}/adata_annotated.h5ad",
+    output:
+        "output/dimensionality_reduction/all/{quantification}/pca_{k}/latent.txt",
+    wildcard_constraints: quantification='.+(?<!gene-expression)'
+    run:
+        adata = anndata.read_h5ad(input[0])
+        if wildcards["quantification"] != "bins-nmf":
+            adata = filter_min_cells_per_feature(adata, 300)
+        print(adata.shape)
+        latent = run_pca(adata, int(wildcards["k"]))
+        np.savetxt(output[0], latent)
+
+
+rule dimensionality_reduction_all_expression:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+    output:
+        "output/dimensionality_reduction/all/gene-expression/pca_{k}/latent.txt",
+    run:
+        adata = anndata.read_h5ad(input[0])
+        sc.pp.filter_genes(adata, min_cells=300)
         sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
         X = adata.X.toarray()
@@ -1276,22 +1307,28 @@ def calculate_classification_metrics(latent, classes, idx, seed=None):
 #        "python -m scquint.quantification.run coverage_track/Snakefile --cores {threads} -d output/coverage_track/tct/{wildcards.tissue}/{wildcards.cell_type}/ --config bam_paths=../../../../bam_paths/tct/{wildcards.tissue}/{wildcards.cell_type}/paths.txt chrom_sizes_path={chrom_sizes_path}"
 
 
+quantifications_all = ["gene-expression", "introns-transitive", "SE", "introns-shared-acceptor"]
+
 rule clustering_patterns_comparison_quantitative:
     input:
-        #expand("output/dimensionality_reduction/mg/{quantification}/pca_10/latent.txt", quantification=quantifications_mg_individual_expanded),
-        expand("output/dimensionality_reduction/mg_3_38_F/{quantification}/pca_10/latent.txt", quantification=quantifications_mg_individual_expanded),
+        expand("output/dimensionality_reduction/mg/{quantification}/pca_10/latent.txt", quantification=quantifications_mg_individual_expanded),
+        #expand("output/dimensionality_reduction/mg_3_38_F/{quantification}/pca_10/latent.txt", quantification=quantifications_mg_individual_expanded),
+        #expand("output/dimensionality_reduction/all/{quantification}/pca_20/latent.txt", quantification=quantifications_all),
     output:
         "output/comparison/mg_3_38_F/classification_results.tsv",
     run:
-        #obs = sample_info[(sample_info.tissue=="Mammary_Gland")]
-        obs = sample_info[(sample_info.tissue=="Mammary_Gland") & (sample_info["mouse.id"]=="3_38_F")]
+        obs = sample_info[(sample_info.tissue=="Mammary_Gland")]
+        #obs = sample_info[(sample_info.tissue=="Mammary_Gland") & (sample_info["mouse.id"]=="3_38_F")]
         obs = obs.sort_index()
-        idx = np.where((obs["mouse.id"]=="3_38_F") & (obs.cell_ontology_class!="endothelial cell"))[0]
+        #obs = sample_info.copy()
+        idx = np.where((obs.tissue=="Mammary_Gland") & (obs["mouse.id"]=="3_38_F") & (obs.cell_ontology_class!="endothelial cell"))[0]
         obs = obs.iloc[idx]
         obs["Cell type"] = obs.cell_ontology_class
         obs["Plate ID"] = obs.plate_id
         results = []
-        for name, input_path in zip(quantifications_mg_individual_expanded, input):
+        #for name, input_path in zip(quantifications_mg_individual_expanded, input):
+        for name, input_path in zip(quantifications_mg_individual_expanded + ["random"], input + ["random"]):
+            print(name)
             #if name == "gene-expression":
             #    name = "Gene expression \n (featureCounts)"
             #if name == "kallisto":
@@ -1300,16 +1337,29 @@ rule clustering_patterns_comparison_quantitative:
             #    name = "100-bp bin cov. proportions \n (ODEGR-NMF)"
             #if name == "introns-shared-acceptor":
             #    name = "Alt. intron proportions \n (scQuint)"
-            latent = np.loadtxt(input_path)
-            latent = latent[idx]
+            if name != "random":
+                latent = np.loadtxt(input_path)
+                latent = latent[idx]
 
             for cell_type in obs.cell_ontology_class.unique():
-                #print(cell_type, ((obs.cell_ontology_class==cell_type) & (obs.plate_id=="B002438")).sum())
-                for seed in range(30):
-                    results.append((name, cell_type, "cell_type", seed, *calculate_classification_metrics(latent, obs.cell_ontology_class==cell_type, slice(None), seed)))
-                    results.append((name, cell_type, "plate", seed, *calculate_classification_metrics(latent, obs.plate_id=="B002438", np.where(obs.cell_ontology_class==cell_type)[0], seed)))
 
-        results = pd.DataFrame(results, columns=["Method", 'Cell type', 'Prediction', 'seed', 'accuracy', 'F1 score', "AUROC"])
+                for seed in range(100):
+                    if name == "random":
+                        latent = np.random.normal(size=latent.shape)
+                    latent_a = latent[obs.cell_ontology_class==cell_type]
+                    latent_b = latent[obs.cell_ontology_class!=cell_type]
+                    dist_cell_type = np.linalg.norm(latent_a.mean(axis=0) - latent_b.mean(axis=0))
+                    latent_a = latent[(obs.cell_ontology_class==cell_type) & (obs.plate_id=="B002438")]
+                    latent_b = latent[(obs.cell_ontology_class==cell_type) & (obs.plate_id!="B002438")]
+                    dist_plate = np.linalg.norm(latent_a.mean(axis=0) - latent_b.mean(axis=0))
+                    dist_logratio = np.log(dist_cell_type) - np.log(dist_plate)
+                    #print(dist_cell_type, dist_plate, dist_logratio)
+
+                    results.append((name, cell_type, "cell_type", seed, *calculate_classification_metrics(latent, obs.cell_ontology_class==cell_type, slice(None), seed), dist_logratio))
+                    results.append((name, cell_type, "plate", seed, *calculate_classification_metrics(latent, obs.plate_id=="B002438", np.where(obs.cell_ontology_class==cell_type)[0], seed), dist_logratio))
+
+
+        results = pd.DataFrame(results, columns=["Method", 'Cell type', 'Prediction', 'seed', 'accuracy', 'F1 score', "AUROC", "dist_logratio"])
         results.to_csv(output[0], "\t", index=False)
 
 
@@ -1317,7 +1367,7 @@ rule clustering_patterns_comparison_quantitative_plot:
     input:
         "output/comparison/mg_3_38_F/classification_results.tsv",
     output:
-        "output/comparison/mg_3_38_F/classification_results.svg",
+        directory("output/comparison/mg_3_38_F/classification_results_plots/"),
     run:
         df = pd.read_csv(input[0], "\t")
         df = df.replace("luminal epithelial cell of mammary gland", "luminal\nepithelial")
@@ -1330,27 +1380,34 @@ rule clustering_patterns_comparison_quantitative_plot:
             "introns-transitive": "LeafCutter",
             "introns-shared-acceptor": "scQuint",
         }, inplace=True)
-        g = sns.catplot(
-            x="Method",
-            y="AUROC",
-            data=df,
-            order=["gene-expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "SE", "scQuint"],
-            ci='sd',
-            palette="Accent",
-            row="Cell type",
-            col="Prediction",
-            kind="bar",
-            margin_titles=True,
-            height=3.5,
-            aspect=1.0,
-        )
-        g.set_xticklabels(rotation=45, horizontalalignment="right")
-        #g.set(ylim=(0.45, 1), yticks=[0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
-        g.set(xlabel="")
-        #sns.despine()
-        #plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0., title="latent space");
-        plt.tight_layout()
-        plt.savefig(output[0], bbox_inches="tight")
+
+        os.makedirs(output[0])
+
+        for metric in ["AUROC", "accuracy", "dist_logratio"]:
+            g = sns.catplot(
+                x="Method",
+                y=metric,
+                data=df,
+                order=["random", "gene-expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "SE", "scQuint"],
+                #order=["random", "gene-expression", "LeafCutter", "SE", "scQuint"],
+                ci='sd',
+                palette="Accent",
+                row="Cell type",
+                col="Prediction",
+                #kind="bar",
+                kind="point", join=False,
+                margin_titles=True,
+                height=3.5,
+                aspect=1.0,
+               )
+            g.set_xticklabels(rotation=45, horizontalalignment="right")
+            #g.set(ylim=(0.45, 1), yticks=[0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+            g.set(xlabel="")
+            #sns.despine()
+            #plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0., title="latent space");
+            plt.tight_layout()
+            plt.savefig(os.path.join(output[0], f"{metric}.svg"), bbox_inches="tight")
+            plt.close()
 
 
 
