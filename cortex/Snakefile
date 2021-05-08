@@ -31,9 +31,9 @@ UMAP = umap.UMAP
 from scquint.differential_splicing import run_differential_splicing
 from scquint.dimensionality_reduction import run_pca
 from scquint.utils import (filter_min_cells_per_cluster,
-                            filter_min_cells_per_feature, filter_singletons,
-                            group_normalize, relabel,
-                            run_differential_expression)
+                           filter_min_cells_per_feature, filter_singletons,
+                           group_normalize, relabel,
+                           run_differential_expression)
 
 matplotlib.use('pdf')
 
@@ -123,13 +123,15 @@ genes_to_plot = [
 
 outlier_batches = ["R8S4-180524", "R8S4-180530"]
 cell_types_batch_effect = ["Vip", "Sst", "Lamp5", "Sncg"]
-quantifications_gaba_subset = ["gene-expression", "kallisto", "introns-transitive", "SE", "SE-shared-donor", "SE-shared-acceptor", "introns-shared-acceptor"]
+quantifications_gaba_subset = ["gene-expression", "kallisto", "bins", "exons", "introns-gene", "introns-transitive", "SE", "introns-shared-acceptor"]
+#quantifications_gaba_subset = ["gene-expression", "kallisto", "introns-transitive", "SE", "introns-shared-acceptor"]
 
 
 rule all:
     input:
+        "output/comparison/gaba_subset/subclass_label.svg",
         #"output/quantification/SE-shared-donor/adata_annotated.h5ad",
-        "output/comparison/gaba_subset/classification_results_plots/",
+        #"output/comparison/gaba_subset/classification_results_plots/",
         #expand('output/diff_spl/subclass_label/{subclass_label}/splicing.significant.tsv', subclass_label=subclass_labels),
         #"output/adata_cellxgene.h5ad",
         #'output/diff_spl/null/cdf.pdf',
@@ -1264,7 +1266,7 @@ rule quantify_SE_shared_donor:
         adata.write(output[0], compression="gzip")
 
 
-rule dimensionality_reduction_mg_pca:
+rule dimensionality_reduction_gaba_subset_pca:
     input:
         "output/quantification/{quantification}/adata_annotated.h5ad",
     output:
@@ -1282,7 +1284,7 @@ rule dimensionality_reduction_mg_pca:
         np.savetxt(output[0], latent)
 
 
-rule dimensionality_reduction_mg_expression:
+rule dimensionality_reduction_gaba_subset_expression:
     input:
         "output/quantification/gene-expression/adata_annotated.h5ad",
     output:
@@ -1300,9 +1302,39 @@ rule dimensionality_reduction_mg_expression:
         np.savetxt(output[0], latent)
 
 
+rule dimensionality_reduction_all_pca:
+    input:
+        "output/quantification/{quantification}/adata_annotated.h5ad",
+    output:
+        "output/dimensionality_reduction/all/{quantification}/pca_{k}/latent.txt",
+    wildcard_constraints: quantification='.+(?<!gene-expression)'
+    run:
+        adata = anndata.read_h5ad(input[0])
+        if wildcards["quantification"] != "bins-nmf":
+            adata = filter_min_cells_per_feature(adata, 100)
+        print(adata.shape)
+        latent = run_pca(adata, int(wildcards["k"]))
+        np.savetxt(output[0], latent)
+
+
+rule dimensionality_reduction_all_expression:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+    output:
+        "output/dimensionality_reduction/all/gene-expression/pca_{k}/latent.txt",
+    run:
+        adata = anndata.read_h5ad(input[0])
+        sc.pp.filter_genes(adata, min_cells=100)
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
+        X = adata.X.toarray()
+        latent = PCA(n_components=int(wildcards["k"])).fit_transform(X)
+        np.savetxt(output[0], latent)
+
+
 rule clustering_patterns_comparison_quantitative:
     input:
-        expand("output/dimensionality_reduction/gaba_subset/{quantification}/pca_10/latent.txt", quantification=quantifications_gaba_subset),
+        expand("output/dimensionality_reduction/gaba_subset/{quantification}/pca_20/latent.txt", quantification=quantifications_gaba_subset),
     output:
         "output/comparison/gaba_subset/classification_results.tsv",
     run:
@@ -1382,3 +1414,116 @@ rule clustering_patterns_comparison_quantitative_plot:
             plt.tight_layout()
             plt.savefig(os.path.join(output[0], f"{metric}.svg"), bbox_inches="tight")
             plt.close()
+
+
+rule compare_latent_custom_plot:
+    input:
+        expand("output/dimensionality_reduction/gaba_subset/{quantification}/pca_10/latent.txt", quantification=quantifications_gaba_subset),
+        #expand("output/dimensionality_reduction/all/{quantification}/pca_20/latent.txt", quantification=quantifications_gaba_subset),
+    output:
+        "output/comparison/gaba_subset/subclass_label.svg",
+        "output/comparison/gaba_subset/batch.svg",
+    run:
+        #obs = sample_info.copy()
+
+        obs = sample_info[(sample_info.subclass_label.isin(cell_types_batch_effect))]
+        obs = obs.sort_index()
+        idx = slice(None)
+        #idx = np.where(sample_info.subclass_label.isin(cell_types_batch_effect))[0]
+        obs = obs.iloc[idx]
+        print(obs.batch.value_counts())
+        col = "batch"
+        obs.loc[obs[col].value_counts()[obs[col]].values < 100, col] = "Other"
+        print(obs.batch.value_counts())
+        dfs = []
+        for name, input_path in zip(quantifications_gaba_subset, input):
+            print(name)
+            if name == "gene-expression":
+                #name = "Gene expression \n (featureCounts)"
+                name = "Gene expression"
+            if name == "kallisto":
+                pass
+                #name = "Isoform proportions \n (kallisto)"
+            if name == "bins":
+                #name = "100-bp bin cov. proportions \n (ODEGR-NMF)"
+                name = "ODEGR-NMF"
+            if name == "introns-shared-acceptor":
+                #name = "Alt. intron proportions \n (scQuint)"
+                name = "scQuint"
+            if name == "introns-transitive":
+                name = "LeafCutter"
+            if name == "introns-gene":
+                name = "DESJ"
+            if name == "SE":
+                name = "Skipped exons"
+            if name == "exons":
+                name = "DEXSeq"
+            df = obs.copy()
+            latent = np.loadtxt(input_path)
+            latent = latent[idx]
+            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
+            df["UMAP 1"] = proj[:, 0]
+            df["UMAP 2"] = proj[:, 1]
+            df["Quantification"] = name
+            dfs.append(df)
+        df = pd.concat(dfs)
+        g = sns.relplot(
+            data=df, x="UMAP 1", y="UMAP 2",
+            row="Quantification",
+            row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
+            #row_order=["Gene expression", "kallisto", "LeafCutter", "Skipped exons", "scQuint"],
+            hue="Cell type",
+            kind="scatter",
+            facet_kws={'sharey': False, 'sharex': False},
+            height=2.0, palette="tab10", edgecolor="none", s=8,
+            aspect=1.0,
+        )
+        g.set_titles(row_template="{row_name}")
+        #g.fig.subplots_adjust(hspace=0.1)
+        for ax in g.axes.flat:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_xlabel("UMAP 1")
+            ax.set_ylabel("UMAP 2")
+        sns.despine()
+        leg = g._legend
+        leg.set_bbox_to_anchor([0.5, 1.0])
+        leg._loc = 8
+        plt.tight_layout()
+        plt.savefig(output[0], bbox_inches='tight')
+        plt.close()
+        g = sns.relplot(
+            data=df, x="UMAP 1", y="UMAP 2",
+            row="Quantification",
+            row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
+            #row_order=["Gene expression", "kallisto", "LeafCutter", "Skipped exons", "scQuint"],
+            hue="batch",
+            kind="scatter",
+            facet_kws={'sharey': False, 'sharex': False, "margin_titles": False},
+            height=2.0,
+            palette=["C3", "C4", "C8", "C10"],
+            #palette="tab20",
+            edgecolor="none", s=8,
+            aspect=1.0,
+            #legend=False,
+        )
+        g.set_titles(row_template="{row_name}")
+        #g.fig.subplots_adjust(hspace=0.1)
+        for ax in g.axes.flat:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_xlabel("UMAP 1")
+            ax.set_ylabel("UMAP 2")
+        sns.despine()
+        leg = g._legend
+        leg.set_bbox_to_anchor([0.5, 1.0])
+        leg._loc = 8
+        #plt.savefig(output[1])
+        #plt.savefig(output[1], bbox_extra_artists=(leg,), bbox_inches='tight')
+        #plt.savefig(output[1], bbox_extra_artists=(leg,))
+        #g.get_figure().savefig(output[1], bbox_inches='tight')
+        #plt.subplots_adjust(top=0.95, right=0.95)
+        #g.savefig(output[1], bbox_inches='tight', bbox_extra_artists=(leg,))
+        plt.tight_layout()
+        plt.savefig(output[1], bbox_inches='tight')
+        plt.close()
