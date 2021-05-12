@@ -29,7 +29,7 @@ from scquint.dimensionality_reduction import run_pca
 from scquint.utils import (filter_min_cells_per_cluster,
                             filter_min_cells_per_feature, filter_singletons,
                             group_normalize, relabel,
-                            run_differential_expression)
+                            run_differential_expression, recluster)
 
 matplotlib.use('pdf')
 #sns.set_palette("muted")
@@ -112,7 +112,9 @@ sample_srr = sample_srr[sample_srr.cell.isin(sample_ids)]
 
 
 quantifications_mg_individual = ["gene-expression", "kallisto", "bins-nmf", "introns-shared-acceptor"]
-quantifications_mg_individual_expanded = ["gene-expression", "kallisto", "bins", "exons", "introns-gene", "introns-transitive", "SE", "introns-shared-acceptor"]
+#quantifications_mg_individual_expanded = ["gene-expression", "kallisto", "bins", "exons", "introns-gene", "introns-transitive", "SE", "introns-shared-acceptor"]
+quantifications_mg_individual_expanded = ["gene-expression", "kallisto", "bins", "exons", "introns-gene", "introns-transitive"]
+#quantifications_mg_individual_expanded = ["gene-expression", "exons", "introns-gene", "introns-transitive", "SE", "introns-shared-acceptor"]
 #quantifications_mg_individual_expanded = ["gene-expression", "kallisto", "bins-nmf"]
 
 motif1 = "AAGCAGTGGTATCAACGCAGAGT"
@@ -162,20 +164,21 @@ cell_type_order = ["(1) pro-B", "(2) pre-B", "(3) immature B", "(4) naive B"]
 
 rule all:
     input:
+        #"output/dimensionality_reduction/marrow/classification_score.svg",
         #"output/quantification/SE/adata_annotated.h5ad",
-        #"output/comparison/mg_3_38_F/classification_results.tsv",
-        #"output/comparison/mg_3_38_F/classification_results.svg",
         #"output/comparison/mg_3_38_F/classification_results_plots/",
         #"output/comparison/cortex_3_9_M/classification_results_plots/",
-        #expand("output/differential_splicing/tissue_cell_type/{tct[0]}/{tct[1]}/splicing.significant.tsv", tct=tissue_cell_type_pairs),
+        #expand("output/differential_splicing/tissue_cell_type/{tct[0]}/{tct[1]}/splicing.clusters.tsv", tct=tissue_cell_type_pairs),
+        #expand("output/differential_splicing/tissue_cell_type/{tct[0]}/{tct[1]}/summary.tsv", tct=tissue_cell_type_pairs),
         #"output/adata_cellxgene.h5ad",
         #expand("output/coverage_track/tct/{tct[0]}/{tct[1]}/coverage.bw", tct=tissue_cell_type_pairs_including_singletons),
         #"output/differential_splicing/tissue_cell_type/Marrow/merged_significant_all.svg",
         #"output/dimensionality_reduction/marrow/classification_score.svg",
         #expand("output/plots/{gene}.svg", gene=genes_to_plot),
         #expand("output/plots/{intron}.svg", intron=introns_to_plot),
-        #expand("output/comparison/marrow_b/{label}.svg", label=labels),
-        "output/comparison/mg_3_38_F/cell_ontology_class.svg",
+        expand("output/comparison/marrow_b/{label}.svg", label=labels),
+        #"output/comparison/cortex_3_9_M/cell_ontology_class.svg",
+        #"output/comparison/mg_3_38_F/cell_ontology_class.svg",
         #expand("output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_all.svg", tissue=pd.unique([t for t, ct in tissue_cell_type_pairs])),
         #expand("output/coverage_track/mg_basal_individual_plate/3_38_F/{plate}/coverage.bw", plate=["B002433", "B002432", "B002438"]),
         #expand(
@@ -556,6 +559,9 @@ rule dimensionality_reduction_mg_pca:
         if wildcards["quantification"] != "bins-nmf":
             adata = filter_min_cells_per_feature(adata, 100)
         print(adata.shape)
+        if wildcards["quantification"] == "introns-transitive":
+            adata = recluster(adata)
+        print(adata.shape)
         latent = run_pca(adata, int(wildcards["k"]))
         np.savetxt(output[0], latent)
 
@@ -711,42 +717,45 @@ rule dimensionality_reduction_brain_expression:
 #        "samtools merge --threads {threads} -b {input} {output}"
 #
 #
-#rule differential_test_tissue_cell_type:
-#    input:
-#        "output/quantification/gene-expression/adata_annotated.h5ad",
-#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-#    output:
-#        'output/differential_splicing/tissue_cell_type/{tissue}/{cell_type}/expression.csv',
-#        'output/differential_splicing/tissue_cell_type/{tissue}/{cell_type}/splicing.clusters.csv',
-#        'output/differential_splicing/tissue_cell_type/{tissue}/{cell_type}/splicing.introns.csv',
-#    threads: workflow.cores // 4
-#    run:
-#        adata_exp = anndata.read_h5ad(input[0])
-#        adata_exp.obs.index = adata_exp.obs.index.astype(str)
-#        adata_spl = anndata.read_h5ad(input[1])
-#        adata_spl.obs.index = adata_spl.obs.index.astype(str)
-#        adata_spl.var.index = adata_spl.var.index.astype(str)
-#        assert((adata_exp.obs.index == adata_spl.obs.index).all())
-#        obs = adata_exp.obs
-#        obs.loc[:, "cell_type"] = obs.cell_ontology_class.str.replace(" ", "_").str.replace("-", "_")
-#        cell_idx_a = np.where((obs.tissue==wildcards["tissue"]) &
-#                              (obs.cell_type==wildcards["cell_type"]))[0]
-#        cell_idx_b = np.where((obs.tissue==wildcards["tissue"]) &
-#                              (obs.cell_type!=wildcards["cell_type"]) &
-#                              (obs.cell_type.isin([ct for t, ct in tissue_cell_type_pairs if t==wildcards["tissue"]])))[0]
-#        MIN_FEATURES = 50
-#        diff_exp = run_differential_expression(adata_exp, cell_idx_a, cell_idx_b, MIN_FEATURES)
-#        diff_exp.to_csv(output[0], '\t', index=False)
-#        diff_spl_clusters, diff_spl_introns = run_differential_splicing(
-#            adata_spl,
-#            cell_idx_a,
-#            cell_idx_b,
-#            min_cells_per_cluster=MIN_FEATURES,
-#            min_total_cells_per_intron=MIN_FEATURES,
-#            n_jobs=threads,
-#        )
-#        diff_spl_clusters.to_csv(output[1], '\t')
-#        diff_spl_introns.to_csv(output[2], '\t')
+rule differential_test_tissue_cell_type:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+        "output/quantification/introns-transitive/adata_annotated.h5ad",
+        #"output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+    output:
+        'output/differential_splicing/tissue_cell_type/{tissue}/{cell_type}/expression.tsv',
+        'output/differential_splicing/tissue_cell_type/{tissue}/{cell_type}/splicing.clusters.tsv',
+        'output/differential_splicing/tissue_cell_type/{tissue}/{cell_type}/splicing.introns.tsv',
+    threads: workflow.cores // 4
+    #threads: workflow.cores
+    run:
+        adata_exp = anndata.read_h5ad(input[0])
+        adata_exp.obs.index = adata_exp.obs.index.astype(str)
+        adata_spl = anndata.read_h5ad(input[1])
+        adata_spl.obs.index = adata_spl.obs.index.astype(str)
+        adata_spl.var.index = adata_spl.var.index.astype(str)
+        assert((adata_exp.obs.index == adata_spl.obs.index).all())
+        obs = adata_exp.obs
+        obs.loc[:, "cell_type"] = obs.cell_ontology_class.str.replace(" ", "_").str.replace("-", "_")
+        cell_idx_a = np.where((obs.tissue==wildcards["tissue"]) &
+                              (obs.cell_type==wildcards["cell_type"]))[0]
+        cell_idx_b = np.where((obs.tissue==wildcards["tissue"]) &
+                              (obs.cell_type!=wildcards["cell_type"]) &
+                              (obs.cell_type.isin([ct for t, ct in tissue_cell_type_pairs if t==wildcards["tissue"]])))[0]
+        MIN_FEATURES = 50
+        diff_exp = run_differential_expression(adata_exp, cell_idx_a, cell_idx_b, MIN_FEATURES)
+        diff_exp.to_csv(output[0], '\t', index=False)
+        diff_spl_clusters, diff_spl_introns = run_differential_splicing(
+            adata_spl,
+            cell_idx_a,
+            cell_idx_b,
+            min_cells_per_cluster=MIN_FEATURES,
+            min_total_cells_per_intron=MIN_FEATURES,
+            n_jobs=threads,
+            do_recluster=True,
+        )
+        diff_spl_clusters.to_csv(output[1], '\t')
+        diff_spl_introns.to_csv(output[2], '\t')
 #
 #
 #rule extract_gene_cds:
@@ -790,13 +799,13 @@ rule dimensionality_reduction_brain_expression:
 #
 rule filter_diff_spl_significant:
     input:
-        'output/{anything}/expression.csv',
-        'output/{anything}/splicing.clusters.csv',
-        'output/{anything}/splicing.introns.csv',
+        'output/{anything}/expression.tsv',
+        'output/{anything}/splicing.clusters.tsv',
+        'output/{anything}/splicing.introns.tsv',
         "output/gene_cds.txt",
         "output/gene_name.txt",
     output:
-        'output/{anything}/splicing.significant.tsv',
+        'output/{anything}/splicing.clusters.significant.tsv',
     run:
         diff_exp = pd.read_csv(input[0], "\t", index_col=0)
         diff_spl_cluster = pd.read_csv(input[1], "\t", index_col=0)
@@ -824,8 +833,8 @@ rule filter_diff_spl_significant:
         diff_spl_cluster["max_abs_delta_psi_unannotated"] = diff_spl_cluster.apply(max_abs_delta_psi_unannotated, axis=1)
         diff_spl_cluster["Annotated"] = diff_spl_cluster.max_abs_delta_psi_unannotated < config["min_abs_delta_psi"]
 
-        coordinates = diff_spl_intron.groupby("cluster").agg({"chromosome": "first", "start": "unique", "end": "unique"})
-        diff_spl_cluster = diff_spl_cluster.merge(coordinates, how="left", left_index=True, right_index=True)
+        #coordinates = diff_spl_intron.groupby("cluster").agg({"chromosome": "first", "start": "unique", "end": "unique"})
+        #diff_spl_cluster = diff_spl_cluster.merge(coordinates, how="left", left_index=True, right_index=True)
 
         print(diff_spl_cluster.Annotated.value_counts())
         def get_diff_exp_rank(row_cluster):
@@ -859,76 +868,68 @@ rule filter_diff_spl_significant:
         diff_spl_cluster["Region"] = diff_spl_cluster.apply(check_region, axis=1)
         diff_spl_cluster.max_abs_delta_psi = diff_spl_cluster.max_abs_delta_psi.round(decimals=3)
 
-        #def signif(x, p):
-        #    x = np.asarray(x)
-        #    x_positive = np.where(np.isfinite(x) & (x != 0), np.abs(x), 10**(p-1))
-        #    mags = 10 ** (p - 1 - np.floor(np.log10(x_positive)))
-        #    return np.round(x * mags) / mags
-
-        #diff_spl_cluster.p_value = signif(diff_spl_cluster.p_value.values, 3)
-        #diff_spl_cluster.p_value_adj = signif(diff_spl_cluster.p_value_adj.values, 3)
-
         diff_spl_cluster.to_csv(
             output[0], "\t",
-            columns=["gene_id", "gene_name", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "p_value", "chromosome", "start", "end"],
+            #columns=["gene_id", "gene_name", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "p_value", "chromosome", "start", "end"],
+            columns=["gene_id", "gene_name", "p_value", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank"],
         )
-#
-#
-#rule merge_significant:
-#    input:
-#        lambda wildcards: expand('output/differential_splicing/tissue_cell_type/{{tissue}}/{cell_type}/splicing.significant.tsv', cell_type=[ct for t, ct in tissue_cell_type_pairs if t==wildcards["tissue"]])
-#    output:
-#        "output/differential_splicing/tissue_cell_type/{tissue}/merged_significant.txt",
-#    run:
-#        dfs = []
-#        for cell_type, input_path in zip([ct for t, ct in tissue_cell_type_pairs if t==wildcards["tissue"]], input):
-#            df = pd.read_csv(input_path, "\t")
-#            df["Cell type"] = cell_type.replace("_", " ")
-#            dfs.append(df)
-#        df = pd.concat(dfs, ignore_index=True)
-#        df = df.sort_values("p_value_adj")
-#        df.to_csv(output[0], "\t", index=False)
-#
-#
-#rule plot_significant:
-#    input:
-#        "output/differential_splicing/tissue_cell_type/{tissue}/merged_significant.txt",
-#    output:
-#        "output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_all.svg",
-#        "output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_aggregate.svg",
-#        #"output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_5p.pdf",
-#        #"output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_cds.pdf",
-#        #"output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_3p.pdf",
-#    run:
-#        df_all = pd.read_csv(input[0], "\t")
-#        df_all["Type"] = df_all.Annotated
-#        df_all.Type = df_all.Type.replace(True, "Annotated").replace(False, "Novel")
-#        df_all.Region = df_all.Region.replace("Non-coding", "Non-coding RNA")
-#
-#        def plot_counts(df, output_path):
-#            df_plot = df.groupby(["Type", "Cell type"]).size().reset_index().pivot(columns='Type', index='Cell type', values=0)
-#            g = df_plot.plot(kind='bar', stacked=True)
-#            g.set_xticklabels(g.get_xticklabels(), rotation=45, horizontalalignment='right')
-#            g.set(xlabel="", ylabel='Diff. spl. events')
-#            #g.despine(left=True)
-#            sns.despine(left=True)
-#            plt.legend(loc='upper right')
-#            plt.savefig(output_path, bbox_inches='tight')
-#            plt.close()
-#        plot_counts(df_all, output[0])
-#        #plot_counts(df_all[df_all.Region=="5' UTR"], output[1])
-#        #plot_counts(df_all[df_all.Region=="Coding region"], output[2])
-#        #plot_counts(df_all[df_all.Region=="3' UTR"], output[3])
-#        df = df_all
-#        df_plot = df.groupby(["Type", "Region"]).size().reset_index().pivot(columns='Type', index='Region', values=0).loc[["5' UTR", "CDS", "3' UTR", "Non-coding RNA"]]
-#        g = df_plot.plot(kind='bar', stacked=True)
-#        g.set_xticklabels(g.get_xticklabels(), rotation=45, horizontalalignment='right')
-#        g.set(xlabel="", ylabel='Diff. spl. events')
-#        sns.despine(left=True)
-#        plt.legend(loc='upper right')
-#        plt.savefig(output[1], bbox_inches='tight')
-#
-#
+
+
+rule merge_significant:
+    input:
+        lambda wildcards: expand('output/differential_splicing/tissue_cell_type/{{tissue}}/{cell_type}/splicing.clusters.significant.tsv', cell_type=[ct for t, ct in tissue_cell_type_pairs if t==wildcards["tissue"]])
+    output:
+        "output/differential_splicing/tissue_cell_type/{tissue}/merged_significant.tsv",
+    run:
+        dfs = []
+        for cell_type, input_path in zip([ct for t, ct in tissue_cell_type_pairs if t==wildcards["tissue"]], input):
+            df = pd.read_csv(input_path, "\t")
+            df["Cell type"] = cell_type.replace("_", " ")
+            dfs.append(df)
+        df = pd.concat(dfs, ignore_index=True)
+        df = df.sort_values("p_value_adj")
+        df.to_csv(output[0], "\t", index=False)
+
+
+rule plot_significant:
+    input:
+        "output/differential_splicing/tissue_cell_type/{tissue}/merged_significant.tsv",
+    output:
+        "output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_all.svg",
+        "output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_aggregate.svg",
+        #"output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_5p.pdf",
+        #"output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_cds.pdf",
+        #"output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_3p.pdf",
+    run:
+        df_all = pd.read_csv(input[0], "\t")
+        df_all["Type"] = df_all.Annotated
+        df_all.Type = df_all.Type.replace(True, "Annotated").replace(False, "Novel")
+        df_all.Region = df_all.Region.replace("Non-coding", "Non-coding RNA")
+
+        def plot_counts(df, output_path):
+            df_plot = df.groupby(["Type", "Cell type"]).size().reset_index().pivot(columns='Type', index='Cell type', values=0)
+            g = df_plot.plot(kind='bar', stacked=True)
+            g.set_xticklabels(g.get_xticklabels(), rotation=45, horizontalalignment='right')
+            g.set(xlabel="", ylabel='Diff. spl. events')
+            #g.despine(left=True)
+            sns.despine()
+            plt.legend(loc='upper right')
+            plt.savefig(output_path, bbox_inches='tight')
+            plt.close()
+        plot_counts(df_all, output[0])
+        #plot_counts(df_all[df_all.Region=="5' UTR"], output[1])
+        #plot_counts(df_all[df_all.Region=="Coding region"], output[2])
+        #plot_counts(df_all[df_all.Region=="3' UTR"], output[3])
+        df = df_all
+        df_plot = df.groupby(["Type", "Region"]).size().reset_index().pivot(columns='Type', index='Region', values=0).loc[["5' UTR", "CDS", "3' UTR", "Non-coding RNA"]]
+        g = df_plot.plot(kind='bar', stacked=True)
+        g.set_xticklabels(g.get_xticklabels(), rotation=45, horizontalalignment='right')
+        g.set(xlabel="", ylabel='Diff. spl. events')
+        sns.despine()
+        plt.legend(loc='upper right')
+        plt.savefig(output[1], bbox_inches='tight')
+
+
 rule compare_latent_custom_plot:
     input:
         expand("output/dimensionality_reduction/mg/{quantification}/pca_10/latent.txt", quantification=quantifications_mg_individual_expanded),
@@ -938,6 +939,7 @@ rule compare_latent_custom_plot:
     run:
         obs = sample_info[(sample_info.tissue=="Mammary_Gland")]
         obs = obs.sort_index()
+        idx = np.where((obs["mouse.id"]=="3_38_F") & (obs.cell_ontology_class!="endothelial cell"))[0]
         idx = np.where((obs["mouse.id"]=="3_38_F") & (obs.cell_ontology_class!="endothelial cell"))[0]
         obs = obs.iloc[idx]
         obs["Cell type"] = obs.cell_ontology_class
@@ -980,12 +982,13 @@ rule compare_latent_custom_plot:
         g = sns.relplot(
             data=df, x="UMAP 1", y="UMAP 2",
             row="Quantification",
-            row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
+            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
+            row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter"],
             hue="Cell type",
             kind="scatter",
             facet_kws={'sharey': False, 'sharex': False},
             height=2.0, palette="tab10", edgecolor="none", s=8,
-            aspect=1.0,
+            aspect=0.8,
         )
         g.set_titles(row_template="{row_name}")
         #g.fig.subplots_adjust(hspace=0.1)
@@ -1004,12 +1007,13 @@ rule compare_latent_custom_plot:
         g = sns.relplot(
             data=df, x="UMAP 1", y="UMAP 2",
             row="Quantification",
-            row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
+            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
+            row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter"],
             hue="Plate ID",
             kind="scatter",
             facet_kws={'sharey': False, 'sharex': False, "margin_titles": False},
-            height=2.0, palette=["C3", "C4", "C10"], edgecolor="none", s=8,
-            aspect=1.0,
+            height=2.0, palette=["C3", "C8", "C9"], edgecolor="none", s=8,
+            aspect=0.95,
             #legend=False,
         )
         g.set_titles(row_template="{row_name}")
@@ -1050,62 +1054,66 @@ rule compare_latent_custom_plot:
 #        np.savetxt(output[0], latent)
 #
 #
-#rule dimensionality_reduction_marrow_b_pca:
-#    input:
-#        "output/quantification/{quantification}/adata_annotated.h5ad",
-#    output:
-#        "output/dimensionality_reduction/marrow_b/{quantification}/PCA_{K}/latent.txt",
-#    run:
-#        adata = anndata.read_h5ad(input[0])
-#        adata = adata[(adata.obs.tissue=="Marrow") & (adata.obs.cell_ontology_class.str.endswith("B cell"))]
-#        adata = filter_min_cells_per_feature(adata, 30)
-#        latent = run_pca(adata, int(wildcards["K"]))
-#        np.savetxt(output[0], latent)
-#
-#
-#rule compare_latent_marrow_b:
-#    input:
-#        "output/dimensionality_reduction/marrow_b/gene-expression/PCA/latent.txt",
-#        "output/dimensionality_reduction/marrow_b/introns-shared-acceptor/PCA_20/latent.txt",
-#    output:
-#        expand("output/comparison/marrow_b/{label}.svg", label=labels)
-#    run:
-#        obs = sample_info.copy()
-#        idx = np.where((obs.tissue=="Marrow") & (obs.cell_ontology_class.str.endswith("B cell")))[0]
-#        obs = obs.iloc[idx]
-#
-#        obs = obs.replace("late pro-B cell", "(1) pro-B")
-#        obs = obs.replace("precursor B cell", "(2) pre-B")
-#        obs = obs.replace("immature B cell", "(3) immature B")
-#        obs = obs.replace("naive B cell", "(4) naive B")
-#
-#        dfs = []
-#        for name, input_path in zip(["Expression latent space", "Splicing latent space"], input):
-#            df = obs.copy()
-#            latent = np.loadtxt(input_path)
-#            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
-#            df["UMAP 1"] = proj[:, 0]
-#            df["UMAP 2"] = proj[:, 1]
-#            df["Quantification"] = name
-#            df = df[df.cell_ontology_class != "early pro-B cell"]
-#            df = df.sort_values("cell_ontology_class")
-#            dfs.append(df)
-#        df = pd.concat(dfs)
-#        for i, label in enumerate(labels):
-#            g = sns.relplot(
-#                data=df, x="UMAP 1", y="UMAP 2",
-#                col="Quantification", hue=label,
-#                kind="scatter", facet_kws={'sharey': False, 'sharex': False},
-#                height=3, palette="tab10", edgecolor="none", s=4,
-#               )
-#            g.set_titles(col_template="{col_name}")
-#            g.fig.subplots_adjust(wspace=0.1)
-#            for ax in g.axes.flat:
-#                ax.set_xticks([])
-#                ax.set_yticks([])
-#                ax.set_ylabel("UMAP 2")
-#            sns.despine()
-#            plt.savefig(output[i], bbox_inches='tight')
+rule dimensionality_reduction_marrow_b_pca:
+    input:
+        "output/quantification/{quantification}/adata_annotated.h5ad",
+    output:
+        "output/dimensionality_reduction/marrow_b/{quantification}/PCA_{K}/latent.txt",
+    run:
+        adata = anndata.read_h5ad(input[0])
+        adata = adata[(adata.obs.tissue=="Marrow") & (adata.obs.cell_ontology_class.str.endswith("B cell"))]
+        adata = filter_min_cells_per_feature(adata, 30)
+        if wildcards["quantification"] == "introns-transitive":
+            adata = recluster(adata)
+        latent = run_pca(adata, int(wildcards["K"]))
+        np.savetxt(output[0], latent)
+
+
+rule compare_latent_marrow_b:
+    input:
+        "output/dimensionality_reduction/marrow_b/gene-expression/PCA/latent.txt",
+        "output/dimensionality_reduction/marrow_b/introns-transitive/PCA_10/latent.txt",
+        #"output/dimensionality_reduction/marrow_b/introns-shared-acceptor/PCA_20/latent.txt",
+    output:
+        expand("output/comparison/marrow_b/{label}.svg", label=labels)
+    run:
+        obs = sample_info.copy()
+        idx = np.where((obs.tissue=="Marrow") & (obs.cell_ontology_class.str.endswith("B cell")))[0]
+        obs = obs.iloc[idx]
+
+        obs = obs.replace("late pro-B cell", "(1) pro-B")
+        obs = obs.replace("precursor B cell", "(2) pre-B")
+        obs = obs.replace("immature B cell", "(3) immature B")
+        obs = obs.replace("naive B cell", "(4) naive B")
+
+        dfs = []
+        for name, input_path in zip(["Expression latent space", "Splicing latent space"], input):
+            df = obs.copy()
+            latent = np.loadtxt(input_path)
+
+            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
+            df["UMAP 1"] = proj[:, 0]
+            df["UMAP 2"] = proj[:, 1]
+            df["Quantification"] = name
+            df = df[df.cell_ontology_class != "early pro-B cell"]
+            df = df.sort_values("cell_ontology_class")
+            dfs.append(df)
+        df = pd.concat(dfs)
+        for i, label in enumerate(labels):
+            g = sns.relplot(
+                data=df, x="UMAP 1", y="UMAP 2",
+                col="Quantification", hue=label,
+                kind="scatter", facet_kws={'sharey': False, 'sharex': False},
+                height=3, palette="tab10", edgecolor="none", s=4,
+               )
+            g.set_titles(col_template="{col_name}")
+            g.fig.subplots_adjust(wspace=0.1)
+            for ax in g.axes.flat:
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.set_ylabel("UMAP 2")
+            sns.despine()
+            plt.savefig(output[i], bbox_inches='tight')
 #
 #
 #rule psi_plot:
@@ -1205,24 +1213,24 @@ rule compare_latent_custom_plot:
 #            plt.clf()
 #
 #
-#rule diff_test_summary:
-#    input:
-#        'output/{anything}/expression.csv',
-#        'output/{anything}/splicing.clusters.csv',
-#    output:
-#        'output/{anything}/summary.tsv',
-#    run:
-#        df_exp = pd.read_csv(input[0], "\t")
-#        df_spl = pd.read_csv(input[1], "\t")
-#        n_genes_exp = ((df_exp.p_value_adj < config["fdr"]) & (df_exp.abs_lfc > config["min_abs_lfc"])).sum()
-#        n_genes_spl = len(df_spl[(df_spl.p_value_adj < config["fdr"]) & (df_spl.max_abs_delta_psi > config["min_abs_delta_psi"])].gene_id.unique())
-#        ratio = n_genes_spl / n_genes_exp
-#        intersection = len(list(set(df_exp.gene.unique()[:100]).intersection(set(df_spl.gene_id.unique()[:100]))))
-#        print(n_genes_exp, n_genes_spl, ratio, intersection)
-#        res = pd.DataFrame([[n_genes_exp, n_genes_spl, ratio, intersection]], columns=["n_genes_exp", "n_genes_spl", "ratio", "top100_intersection"])
-#        res.to_csv(output[0], "\t", index=False)
-#
-#
+rule diff_test_summary:
+    input:
+        'output/{anything}/expression.tsv',
+        'output/{anything}/splicing.clusters.tsv',
+    output:
+        'output/{anything}/summary.tsv',
+    run:
+        df_exp = pd.read_csv(input[0], "\t")
+        df_spl = pd.read_csv(input[1], "\t")
+        n_genes_exp = ((df_exp.p_value_adj < config["fdr"]) & (df_exp.abs_lfc > config["min_abs_lfc"])).sum()
+        n_genes_spl = len(df_spl[(df_spl.p_value_adj < config["fdr"]) & (df_spl.max_abs_delta_psi > config["min_abs_delta_psi"])].gene_id.unique())
+        ratio = n_genes_spl / n_genes_exp
+        intersection = len(list(set(df_exp.gene.unique()[:100]).intersection(set(df_spl.gene_id.unique()[:100]))))
+        print(n_genes_exp, n_genes_spl, ratio, intersection)
+        res = pd.DataFrame([[n_genes_exp, n_genes_spl, ratio, intersection]], columns=["n_genes_exp", "n_genes_spl", "ratio", "top100_intersection"])
+        res.to_csv(output[0], "\t", index=False)
+
+
 def calculate_classification_metrics(latent, classes, idx, seed=None):
     latent = latent[idx]
     classes = classes[idx]
@@ -1243,51 +1251,51 @@ def calculate_classification_metrics(latent, classes, idx, seed=None):
     y_pred = clf.predict(X_test)
     y_proba = clf.predict_proba(X_test)
     return accuracy_score(y_test, y_pred), f1_score(y_test, y_pred), roc_auc_score(y_test, y_proba[:, 1])
-#
-#
-#rule get_classification_score:
-#    input:
-#        "output/dimensionality_reduction/marrow/gene-expression/PCA/latent.txt",
-#        "output/dimensionality_reduction/marrow/introns-shared-acceptor/PCA_20/latent.txt",
-#    output:
-#        "output/dimensionality_reduction/marrow/classification_score.tsv",
-#    run:
-#        latent_exp = np.loadtxt(input[0])
-#        latent_spl = np.loadtxt(input[1])
-#        obs = sample_info[sample_info.tissue=="Marrow"]
-#
-#        results = []
-#        for tissue, cell_type in tissue_cell_type_pairs:
-#            if tissue != "Marrow": continue
-#            print(cell_type)
-#            idx = np.where(np.isin(obs.cell_type, [ct for t, ct in tissue_cell_type_pairs if t==tissue]))[0]
-#            print(idx)
-#            labels = (obs.cell_type==cell_type)
-#            print(labels.sum(), len(labels), len(latent_exp), len(latent_spl))
-#
-#            for seed in range(30):
-#                results.append((cell_type.replace("_", " "), "Expression", seed, *calculate_classification_metrics(latent_exp, labels, idx, seed)))
-#                results.append((cell_type.replace("_", " "), "Splicing", seed, *calculate_classification_metrics(latent_spl, labels, idx, seed)))
-#        results = pd.DataFrame(results, columns=['Cell type', 'Latent space', 'seed', 'accuracy', 'F1 score', "AUC"])
-#        results.to_csv(output[0], "\t", index=False)
-#
-#
-#rule plot_classification_score:
-#    input:
-#        "output/dimensionality_reduction/marrow/classification_score.tsv",
-#    output:
-#        "output/dimensionality_reduction/marrow/classification_score.svg",
-#    run:
-#        df = pd.read_csv(input[0], "\t")
-#        g = sns.barplot(x="Cell type", y="AUC", hue="Latent space", data=df, ci='sd', palette="Accent");
-#        g.set_xticklabels(g.get_xticklabels(), rotation=45,  horizontalalignment='right')
-#        g.set(xlabel="")
-#        sns.despine()
-#        #plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0., title="latent space");
-#        plt.tight_layout()
-#        plt.savefig(output[0], bbox_inches="tight")
-#
-#
+
+
+rule get_classification_score:
+    input:
+        "output/dimensionality_reduction/marrow/gene-expression/pca_20/latent.txt",
+        "output/dimensionality_reduction/marrow/introns-transitive/pca_20/latent.txt",
+    output:
+        "output/dimensionality_reduction/marrow/classification_score.tsv",
+    run:
+        latent_exp = np.loadtxt(input[0])
+        latent_spl = np.loadtxt(input[1])
+        obs = sample_info[sample_info.tissue=="Marrow"]
+
+        results = []
+        for tissue, cell_type in tissue_cell_type_pairs:
+            if tissue != "Marrow": continue
+            print(cell_type)
+            idx = np.where(np.isin(obs.cell_type, [ct for t, ct in tissue_cell_type_pairs if t==tissue]))[0]
+            print(idx)
+            labels = (obs.cell_type==cell_type)
+            print(labels.sum(), len(labels), len(latent_exp), len(latent_spl))
+
+            for seed in range(30):
+                results.append((cell_type.replace("_", " "), "Expression", seed, *calculate_classification_metrics(latent_exp, labels, idx, seed)))
+                results.append((cell_type.replace("_", " "), "Splicing", seed, *calculate_classification_metrics(latent_spl, labels, idx, seed)))
+        results = pd.DataFrame(results, columns=['Cell type', 'Latent space', 'seed', 'accuracy', 'F1 score', "AUC"])
+        results.to_csv(output[0], "\t", index=False)
+
+
+rule plot_classification_score:
+    input:
+        "output/dimensionality_reduction/marrow/classification_score.tsv",
+    output:
+        "output/dimensionality_reduction/marrow/classification_score.svg",
+    run:
+        df = pd.read_csv(input[0], "\t")
+        g = sns.barplot(x="Cell type", y="AUC", hue="Latent space", data=df, ci='sd', palette="Accent");
+        g.set_xticklabels(g.get_xticklabels(), rotation=45,  horizontalalignment='right')
+        g.set(xlabel="")
+        sns.despine()
+        #plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0., title="latent space");
+        plt.tight_layout()
+        plt.savefig(output[0], bbox_inches="tight")
+
+
 #rule get_marker_introns:
 #    input:
 #        'output/{anything}/splicing.clusters.csv',
@@ -1858,3 +1866,139 @@ rule clustering_patterns_cortex_comparison_quantitative_plot:
             plt.tight_layout()
             plt.savefig(os.path.join(output[0], f"{metric}.svg"), bbox_inches="tight")
             plt.close()
+
+
+rule compare_latent_cortex_3_9_M_custom_plot:
+    input:
+        expand("output/dimensionality_reduction/brain/{quantification}/pca_20/latent.txt", quantification=quantifications_mg_individual_expanded),
+    output:
+        "output/comparison/cortex_3_9_M/cell_ontology_class.svg",
+        "output/comparison/cortex_3_9_M/plate.svg",
+    run:
+        obs = sample_info[(sample_info.tissue=="Brain_Non-Myeloid")]
+        obs = obs.sort_index()
+        idx = np.where((obs.tissue=="Brain_Non-Myeloid") & (obs.subtissue=="Cortex") & (obs["mouse.id"]=="3_9_M") & (obs.cell_ontology_class.isin(["oligodendrocyte", "astrocyte", "endothelial cell"])))[0]
+        obs = obs.iloc[idx]
+        obs["Cell type"] = obs.cell_ontology_class
+        obs["Plate ID"] = obs.plate_id
+        dfs = []
+        for name, input_path in zip(quantifications_mg_individual_expanded, input):
+            print(name)
+            if name == "gene-expression":
+                #name = "Gene expression \n (featureCounts)"
+                name = "Gene expression"
+            if name == "kallisto":
+                pass
+                #name = "Isoform proportions \n (kallisto)"
+            if name == "bins":
+                #name = "100-bp bin cov. proportions \n (ODEGR-NMF)"
+                name = "ODEGR-NMF"
+            if name == "introns-shared-acceptor":
+                #name = "Alt. intron proportions \n (scQuint)"
+                name = "scQuint"
+            if name == "introns-transitive":
+                name = "LeafCutter"
+            if name == "introns-gene":
+                name = "DESJ"
+            if name == "SE":
+                name = "Skipped exons"
+            if name == "exons":
+                name = "DEXSeq"
+            df = obs.copy()
+            latent = np.loadtxt(input_path)
+            latent = latent[idx]
+            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
+            df["UMAP 1"] = proj[:, 0]
+            df["UMAP 2"] = proj[:, 1]
+            df["Quantification"] = name
+            dfs.append(df)
+        df = pd.concat(dfs)
+        g = sns.relplot(
+            data=df, x="UMAP 1", y="UMAP 2",
+            row="Quantification",
+            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
+            row_order=["Gene expression", "DEXSeq", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
+            hue="Cell type",
+            kind="scatter",
+            facet_kws={'sharey': False, 'sharex': False},
+            height=2.0, palette="tab10", edgecolor="none", s=8,
+            aspect=1.0,
+        )
+        g.set_titles(row_template="{row_name}")
+        #g.fig.subplots_adjust(hspace=0.1)
+        for ax in g.axes.flat:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_xlabel("UMAP 1")
+            ax.set_ylabel("UMAP 2")
+        sns.despine()
+        leg = g._legend
+        leg.set_bbox_to_anchor([0.5, 1.0])
+        leg._loc = 8
+        plt.tight_layout()
+        plt.savefig(output[0], bbox_inches='tight')
+        plt.close()
+        g = sns.relplot(
+            data=df, x="UMAP 1", y="UMAP 2",
+            row="Quantification",
+            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
+            row_order=["Gene expression", "DEXSeq", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
+            hue="Plate ID",
+            kind="scatter",
+            facet_kws={'sharey': False, 'sharex': False, "margin_titles": False},
+            height=2.0, palette=["C3", "C4"], edgecolor="none", s=8,
+            aspect=1.0,
+            #legend=False,
+        )
+        g.set_titles(row_template="{row_name}")
+        #g.fig.subplots_adjust(hspace=0.1)
+        for ax in g.axes.flat:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_xlabel("UMAP 1")
+            ax.set_ylabel("UMAP 2")
+        sns.despine()
+        leg = g._legend
+        leg.set_bbox_to_anchor([0.5, 1.0])
+        leg._loc = 8
+        #plt.savefig(output[1])
+        #plt.savefig(output[1], bbox_extra_artists=(leg,), bbox_inches='tight')
+        #plt.savefig(output[1], bbox_extra_artists=(leg,))
+        #g.get_figure().savefig(output[1], bbox_inches='tight')
+        #plt.subplots_adjust(top=0.95, right=0.95)
+        #g.savefig(output[1], bbox_inches='tight', bbox_extra_artists=(leg,))
+        plt.tight_layout()
+        plt.savefig(output[1], bbox_inches='tight')
+        plt.close()
+
+
+rule dimensionality_reduction_marrow_expression:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+    output:
+        "output/dimensionality_reduction/marrow/gene-expression/pca_20/latent.txt",
+    run:
+        adata = anndata.read_h5ad(input[0])
+        adata = adata[(adata.obs.tissue=="Marrow")]
+        sc.pp.filter_genes(adata, min_cells=30)
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
+        X = adata.X.toarray()
+        latent = PCA(n_components=20).fit_transform(X)
+        np.savetxt(output[0], latent)
+
+
+rule dimensionality_reduction_marrow_pca:
+    input:
+        "output/quantification/{quantification}/adata_annotated.h5ad",
+    output:
+        "output/dimensionality_reduction/marrow/{quantification}/pca_{K}/latent.txt",
+    wildcard_constraints: quantification='.+(?<!gene-expression)'
+    run:
+        adata = anndata.read_h5ad(input[0])
+        adata = adata[(adata.obs.tissue=="Marrow")]
+        adata = filter_min_cells_per_feature(adata, 30)
+        if wildcards["quantification"] == "introns-transitive":
+            adata = recluster(adata)
+        latent = run_pca(adata, int(wildcards["K"]))
+        np.savetxt(output[0], latent)

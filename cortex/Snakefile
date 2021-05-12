@@ -33,7 +33,7 @@ from scquint.dimensionality_reduction import run_pca
 from scquint.utils import (filter_min_cells_per_cluster,
                            filter_min_cells_per_feature, filter_singletons,
                            group_normalize, relabel,
-                           run_differential_expression)
+                           run_differential_expression, recluster)
 
 matplotlib.use('pdf')
 
@@ -129,12 +129,15 @@ quantifications_gaba_subset = ["gene-expression", "kallisto", "bins", "exons", "
 
 rule all:
     input:
-        "output/comparison/gaba_subset/subclass_label.svg",
+        #"output/comparison/gaba_subset/subclass_label.svg",
         #"output/quantification/SE-shared-donor/adata_annotated.h5ad",
         #"output/comparison/gaba_subset/classification_results_plots/",
-        #expand('output/diff_spl/subclass_label/{subclass_label}/splicing.significant.tsv', subclass_label=subclass_labels),
+        expand('output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.significant.tsv', subclass_label=subclass_labels),
+        #expand('output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.tsv', subclass_label=subclass_labels),
+        #expand('output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.tsv', subclass_label=["Pvalb"]),
         #"output/adata_cellxgene.h5ad",
         #'output/diff_spl/null/cdf.pdf',
+        #"output/quantification/introns-transitive-shuffled/adata_annotated.h5ad",
         #"output/dimensionality_reduction/classification_score.svg",
         #'output/diff_spl/subclass_label/marker_introns.svg',
         #expand("output/plots/{gene}.svg", gene=genes_to_plot),
@@ -142,7 +145,7 @@ rule all:
         #"output/comparison/shuffled/cell_type.pdf",
         #"output/comparison/exp_spl/cell_type.svg",
         #"output/diff_spl/subclass_label/merged_significant_all.svg",
-        #'output/L5_IT/summary.tsv',
+        #'output/diff_spl/subclass_label/L5_IT/summary.tsv',
 
 
 #rule download:
@@ -328,99 +331,106 @@ rule add_metadata:
 #        "python -m scquint.quantification.run coverage_track/Snakefile --cores {threads} -d output/coverage_track/{wildcards.subclass}/ --config bam_paths=../../bam_paths_{wildcards.subclass}.txt chrom_sizes_path={chrom_sizes_path}"
 #
 #
-#rule differential_test_null:
-#    input:
-#        "output/quantification/gene-expression/adata_annotated.h5ad",
-#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-#    output:
-#        'output/diff_spl/null/expression.csv',
-#        'output/diff_spl/null/splicing.clusters.csv',
-#        'output/diff_spl/null/splicing.introns.csv',
-#    threads: workflow.cores
-#    run:
-#        adata_exp = anndata.read_h5ad(input[0])
-#        adata_exp.obs.index = adata_exp.obs.index.astype(str)
-#        adata_spl = anndata.read_h5ad(input[1])
-#        adata_spl.obs.index = adata_spl.obs.index.astype(str)
-#        adata_spl.var.index = adata_spl.var.index.astype(str)
-#        assert((adata_exp.obs.index == adata_spl.obs.index).all())
-#        obs = adata_exp.obs
-#        print("threads: ", threads)
-#        np.random.seed(100)
-#        cell_idx = np.arange(len(obs))
-#        cell_idx_perm = np.random.permutation(cell_idx)
-#        cell_idx_a = cell_idx_perm[:len(cell_idx)//2]
-#        cell_idx_b = cell_idx_perm[len(cell_idx)//2:]
-#        #cell_idx_a = cell_idx_a[:1000]
-#        #cell_idx_b = cell_idx_b[:1000]
-#        diff_exp = run_differential_expression(adata_exp, cell_idx_a, cell_idx_b, config["min_total_cells_per_gene"])
-#        print(diff_exp)
-#        diff_exp.to_csv(output[0], '\t', index=False)
-#        diff_spl_clusters, diff_spl_introns = run_differential_splicing(
-#            adata_spl,
-#            cell_idx_a,
-#            cell_idx_b,
-#            min_cells_per_cluster=config["min_cells_per_cluster"],
-#            min_total_cells_per_intron=config["min_total_cells_per_intron"],
-#            n_jobs=threads,
-#        )
-#        diff_spl_clusters.to_csv(output[1], '\t')
-#        diff_spl_introns.to_csv(output[2], '\t')
-#
-#
-#rule plot_dist_under_null:
-#    input:
-#        'output/diff_spl/null/splicing.clusters.csv',
-#    output:
-#        'output/diff_spl/null/cdf.pdf',
-#    run:
-#        df = pd.read_csv(input[0], "\t")
-#        plt.plot([0, 1], [0, 1], color="gray", linestyle="--")
-#        ax = plt.gca()
-#        sns.ecdfplot(df.p_value, ax=ax)
-#        plt.xlabel("p-value")
-#        plt.ylabel("cdf")
-#        plt.xlim([0, 1])
-#        plt.ylim([0, 1])
-#        plt.gca().set_aspect('equal', adjustable='box')
-#        plt.tight_layout()
-#        plt.draw()
-#        plt.savefig(output[0], bbox_inches='tight')
-#
-#
-#rule differential_test_subclass:
-#    input:
-#        "output/quantification/gene-expression/adata_annotated.h5ad",
-#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-#    output:
-#        'output/diff_spl/subclass_label/{subclass_label}/expression.csv',
-#        'output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.csv',
-#        'output/diff_spl/subclass_label/{subclass_label}/splicing.introns.csv',
-#    threads: workflow.cores // 4
-#    run:
-#        adata_exp = anndata.read_h5ad(input[0])
-#        adata_exp.obs.index = adata_exp.obs.index.astype(str)
-#        adata_spl = anndata.read_h5ad(input[1])
-#        adata_spl.obs.index = adata_spl.obs.index.astype(str)
-#        adata_spl.var.index = adata_spl.var.index.astype(str)
-#        assert((adata_exp.obs.index == adata_spl.obs.index).all())
-#        obs = adata_exp.obs
-#
-#        MIN_FEATURES = 50
-#        cell_idx_a = np.where((obs.subclass_label==wildcards["subclass_label"]))[0]
-#        cell_idx_b = np.where((obs.subclass_label!=wildcards["subclass_label"]))[0]
-#        diff_exp = run_differential_expression(adata_exp, cell_idx_a, cell_idx_b, MIN_FEATURES)
-#        diff_exp.to_csv(output[0], '\t', index=False)
-#        diff_spl_clusters, diff_spl_introns = run_differential_splicing(
-#            adata_spl,
-#            cell_idx_a,
-#            cell_idx_b,
-#            min_cells_per_cluster=MIN_FEATURES,
-#            min_total_cells_per_intron=MIN_FEATURES,
-#            n_jobs=threads,
-#        )
-#        diff_spl_clusters.to_csv(output[1], '\t')
-#        diff_spl_introns.to_csv(output[2], '\t')
+rule differential_test_null:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+        "output/quantification/introns-transitive/adata_annotated.h5ad",
+        #"output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+    output:
+        'output/diff_spl/null/expression.tsv',
+        'output/diff_spl/null/splicing.clusters.tsv',
+        'output/diff_spl/null/splicing.introns.tsv',
+    threads: workflow.cores
+    run:
+        adata_exp = anndata.read_h5ad(input[0])
+        adata_exp.obs.index = adata_exp.obs.index.astype(str)
+        adata_spl = anndata.read_h5ad(input[1])
+        adata_spl.obs.index = adata_spl.obs.index.astype(str)
+        adata_spl.var.index = adata_spl.var.index.astype(str)
+        assert((adata_exp.obs.index == adata_spl.obs.index).all())
+        obs = adata_exp.obs
+        print("threads: ", threads)
+        np.random.seed(42)
+        cell_idx = np.arange(len(obs))
+        cell_idx_perm = np.random.permutation(cell_idx)
+        cell_idx_a = cell_idx_perm[:len(cell_idx)//2]
+        cell_idx_b = cell_idx_perm[len(cell_idx)//2:]
+        #print("running on a subset")
+        #cell_idx_a = cell_idx_a[:500]
+        #cell_idx_b = cell_idx_b[:500]
+        diff_exp = run_differential_expression(adata_exp, cell_idx_a, cell_idx_b, config["min_total_cells_per_gene"])
+        print(diff_exp)
+        diff_exp.to_csv(output[0], '\t', index=False)
+        diff_spl_clusters, diff_spl_introns = run_differential_splicing(
+            adata_spl,
+            cell_idx_a,
+            cell_idx_b,
+            min_cells_per_cluster=config["min_cells_per_cluster"],
+            min_total_cells_per_intron=config["min_total_cells_per_intron"],
+            n_jobs=threads,
+            do_recluster=True,
+            #do_recluster=False,
+        )
+        diff_spl_clusters.to_csv(output[1], '\t')
+        diff_spl_introns.to_csv(output[2], '\t')
+
+
+rule plot_dist_under_null:
+    input:
+        'output/diff_spl/null/splicing.clusters.tsv',
+    output:
+        'output/diff_spl/null/cdf.pdf',
+    run:
+        df = pd.read_csv(input[0], "\t")
+        plt.plot([0, 1], [0, 1], color="gray", linestyle="--")
+        ax = plt.gca()
+        sns.ecdfplot(df.p_value, ax=ax)
+        plt.xlabel("p-value")
+        plt.ylabel("cdf")
+        plt.xlim([0, 1])
+        plt.ylim([0, 1])
+        plt.gca().set_aspect('equal', adjustable='box')
+        plt.tight_layout()
+        plt.draw()
+        plt.savefig(output[0], bbox_inches='tight')
+
+
+rule differential_test_subclass:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+        "output/quantification/introns-transitive/adata_annotated.h5ad",
+        #"output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+    output:
+        'output/diff_spl/subclass_label/{subclass_label}/expression.tsv',
+        'output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.tsv',
+        'output/diff_spl/subclass_label/{subclass_label}/splicing.introns.tsv',
+    #threads: workflow.cores // 4
+    threads: workflow.cores
+    run:
+        adata_exp = anndata.read_h5ad(input[0])
+        adata_exp.obs.index = adata_exp.obs.index.astype(str)
+        adata_spl = anndata.read_h5ad(input[1])
+        adata_spl.obs.index = adata_spl.obs.index.astype(str)
+        adata_spl.var.index = adata_spl.var.index.astype(str)
+        assert((adata_exp.obs.index == adata_spl.obs.index).all())
+        obs = adata_exp.obs
+
+        MIN_FEATURES = 50
+        cell_idx_a = np.where((obs.subclass_label==wildcards["subclass_label"]))[0]
+        cell_idx_b = np.where((obs.subclass_label!=wildcards["subclass_label"]))[0]
+        diff_exp = run_differential_expression(adata_exp, cell_idx_a, cell_idx_b, MIN_FEATURES)
+        diff_exp.to_csv(output[0], '\t', index=False)
+        diff_spl_clusters, diff_spl_introns = run_differential_splicing(
+            adata_spl,
+            cell_idx_a,
+            cell_idx_b,
+            min_cells_per_cluster=MIN_FEATURES,
+            min_total_cells_per_intron=MIN_FEATURES,
+            n_jobs=threads,
+            do_recluster=True,
+        )
+        diff_spl_clusters.to_csv(output[1], '\t')
+        diff_spl_introns.to_csv(output[2], '\t')
 #
 #
 #rule extract_gene_cds:
@@ -462,152 +472,146 @@ rule add_metadata:
 #        res.to_csv(output[0], "\t")
 #
 #
-#rule filter_diff_spl_significant:
-#    input:
-#        'output/diff_spl/subclass_label/{subclass_label}/expression.csv',
-#        'output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.csv',
-#        'output/diff_spl/subclass_label/{subclass_label}/splicing.introns.csv',
-#        "output/gene_cds.txt",
-#        "output/gene_name.txt",
-#    output:
-#        'output/diff_spl/subclass_label/{subclass_label}/splicing.significant.tsv',
-#    run:
-#        diff_exp = pd.read_csv(input[0], "\t", index_col=0)
-#        diff_spl_cluster = pd.read_csv(input[1], "\t", index_col=0)
-#        diff_spl_intron = pd.read_csv(input[2], "\t", index_col=0)
-#        gene_cds = pd.read_csv(input[3], "\t", index_col=0)
-#        gene_name = pd.read_csv(input[4], "\t", index_col=0)
-#
-#        assert(set(diff_spl_cluster.index.values) == set(diff_spl_intron.cluster.unique()))
-#
-#        print(diff_spl_cluster.shape)
-#        diff_spl_cluster = diff_spl_cluster[
-#            ((diff_spl_cluster.p_value_adj <= config["fdr"]) &
-#             (diff_spl_cluster.max_abs_delta_psi >= config["min_abs_delta_psi"]))
-#        ]
-#        print(diff_spl_cluster.shape)
-#        diff_spl_cluster = diff_spl_cluster.merge(gene_name, how="left", left_on="gene_id", right_index=True)
-#        print(diff_spl_cluster.shape)
-#        def max_abs_lfc_psi_unannotated(row_cluster):
-#            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
-#            return (introns.abs_lfc_psi * (~introns.annotated).astype(int)).max()
-#        diff_spl_cluster["max_abs_lfc_psi_unannotated"] = diff_spl_cluster.apply(max_abs_lfc_psi_unannotated, axis=1)
-#        #diff_spl_cluster["Annotated"] = diff_spl_cluster.max_abs_lfc_psi_unannotated < config["min_abs_lfc"]
-#        def max_abs_delta_psi_unannotated(row_cluster):
-#            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
-#            return (introns.abs_delta_psi * (~introns.annotated).astype(int)).max()
-#        diff_spl_cluster["max_abs_delta_psi_unannotated"] = diff_spl_cluster.apply(max_abs_delta_psi_unannotated, axis=1)
-#        diff_spl_cluster["Annotated"] = diff_spl_cluster.max_abs_delta_psi_unannotated < config["min_abs_delta_psi"]
-#
-#        coordinates = diff_spl_intron.groupby("cluster").agg({"chromosome": "first", "start": "unique", "end": "unique"})
-#        diff_spl_cluster = diff_spl_cluster.merge(coordinates, how="left", left_index=True, right_index=True)
-#
-#        print(diff_spl_cluster.Annotated.value_counts())
-#        def get_diff_exp_rank(row_cluster):
-#            try:
-#                return diff_exp.loc[row_cluster.gene_id].ranking
-#            except KeyError:
-#                return np.nan
-#        diff_spl_cluster["diff_exp_rank"] = diff_spl_cluster.apply(get_diff_exp_rank, axis=1)
-#        def check_region(row_cluster):
-#            try:
-#                cds = gene_cds.loc[row_cluster.gene_id]
-#            except KeyError:
-#                return "Non-coding"
-#            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
-#            cluster_start = introns.start.min()
-#            cluster_end = introns.end.max()
-#            if cds.strand == "+":
-#                if cluster_start < cds.start:
-#                    return "5' UTR"
-#                if cluster_start < cds.end:
-#                    return "CDS"
-#                return "3' UTR"
-#            elif cds.strand == "-":
-#                if cluster_start < cds.start:
-#                    return "3' UTR"
-#                if cluster_start < cds.end:
-#                    return "CDS"
-#                return "5' UTR"
-#            else:
-#                raise Exception("strand not implemented")
-#        diff_spl_cluster["Region"] = diff_spl_cluster.apply(check_region, axis=1)
-#        print(diff_spl_cluster.Region.value_counts())
-#        diff_spl_cluster.max_abs_delta_psi = diff_spl_cluster.max_abs_delta_psi.round(decimals=3)
-#
-#        #def signif(x, p):
-#        #    x = np.asarray(x)
-#        #    x_positive = np.where(np.isfinite(x) & (x != 0), np.abs(x), 10**(p-1))
-#        #    mags = 10 ** (p - 1 - np.floor(np.log10(x_positive)))
-#        #    return np.round(x * mags) / mags
-#
-#        #diff_spl_cluster.p_value = signif(diff_spl_cluster.p_value.values, 3)
-#        #diff_spl_cluster.p_value_adj = signif(diff_spl_cluster.p_value_adj.values, 3)
-#
-#        diff_spl_cluster.to_csv(
-#            output[0], "\t",
-#            columns=["gene_id", "gene_name", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "p_value", "chromosome", "start", "end"],
-#        )
-#
-#
-#rule merge_significant:
-#    input:
-#        expand('output/diff_spl/subclass_label/{subclass_label}/splicing.significant.tsv', subclass_label=subclass_labels),
-#    output:
-#        "output/diff_spl/subclass_label/merged_significant.txt",
-#    run:
-#        dfs = []
-#        for subclass_label, input_path in zip(subclass_labels, input):
-#            df = pd.read_csv(input_path, "\t")
-#            df["Cell type"] = subclass_label.replace("_", " ").replace("slash", "/")
-#            dfs.append(df)
-#        df = pd.concat(dfs, ignore_index=True)
-#        df = df.sort_values("p_value_adj")
-#        df.to_csv(output[0], "\t", index=False)
-#
-#
-#rule plot_significant:
-#    input:
-#        "output/diff_spl/subclass_label/merged_significant.txt",
-#    output:
-#        "output/diff_spl/subclass_label/merged_significant_all.svg",
-#        "output/diff_spl/subclass_label/merged_significant_5p.svg",
-#        "output/diff_spl/subclass_label/merged_significant_cds.svg",
-#        "output/diff_spl/subclass_label/merged_significant_3p.svg",
-#        "output/diff_spl/subclass_label/merged_significant_aggregate.svg",
-#    run:
-#        df_all = pd.read_csv(input[0], "\t")
-#        df_all = df_all[df_all["Cell type"].isin(cell_type_order)]
-#        df_all["Type"] = df_all.Annotated
-#        df_all.Type = df_all.Type.replace(True, "Annotated").replace(False, "Novel")
-#        df_all.Region = df_all.Region.replace("Non-coding", "Non-coding RNA")
-#
-#        def plot_counts(df, output_path):
-#            df_plot = df.groupby(["Type", "Cell type"]).size().reset_index().pivot(columns='Type', index='Cell type', values=0)
-#            print(df_plot)
-#            df_plot = df_plot.loc[cell_type_order]
-#            print(df_plot)
-#            g = df_plot.plot(kind='bar', stacked=True)
-#            g.set_xticklabels(g.get_xticklabels(), rotation=45, horizontalalignment='right')
-#            #g.set(xlabel='Cell type', ylabel='Diff. spl. events')
-#            g.set(xlabel="", ylabel='Diff. spl. events')
-#            sns.despine(left=True)
-#            plt.legend(loc='upper right')
-#            plt.savefig(output_path, bbox_inches='tight')
-#            plt.close()
-#        plot_counts(df_all, output[0])
-#        plot_counts(df_all[df_all.Region=="5' UTR"], output[1])
-#        plot_counts(df_all[df_all.Region=="CDS"], output[2])
-#        plot_counts(df_all[df_all.Region=="3' UTR"], output[3])
-#        df = df_all
-#        df_plot = df.groupby(["Type", "Region"]).size().reset_index().pivot(columns='Type', index='Region', values=0).loc[["5' UTR", "CDS", "3' UTR", "Non-coding RNA"]]
-#        g = df_plot.plot(kind='bar', stacked=True)
-#        g.set_xticklabels(g.get_xticklabels(), rotation=45, horizontalalignment='right')
-#        #g.set(xlabel='Region', ylabel='Diff. spl. events')
-#        g.set(xlabel="", ylabel='Diff. spl. events')
-#        sns.despine(left=True)
-#        plt.legend(loc='upper right')
-#        plt.savefig(output[4], bbox_inches='tight')
+rule filter_diff_spl_significant:
+    input:
+        'output/diff_spl/subclass_label/{subclass_label}/expression.tsv',
+        'output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.tsv',
+        'output/diff_spl/subclass_label/{subclass_label}/splicing.introns.tsv',
+        "output/gene_cds.txt",
+        "output/gene_name.txt",
+    output:
+        'output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.significant.tsv',
+    run:
+        diff_exp = pd.read_csv(input[0], "\t", index_col=0)
+        diff_spl_cluster = pd.read_csv(input[1], "\t", index_col=0)
+        diff_spl_intron = pd.read_csv(input[2], "\t", index_col=0)
+        gene_cds = pd.read_csv(input[3], "\t", index_col=0)
+        gene_name = pd.read_csv(input[4], "\t", index_col=0)
+
+        assert(set(diff_spl_cluster.index.values) == set(diff_spl_intron.cluster.unique()))
+
+        print(diff_spl_cluster.shape)
+        diff_spl_cluster = diff_spl_cluster[
+            ((diff_spl_cluster.p_value_adj <= config["fdr"]) &
+             (diff_spl_cluster.max_abs_delta_psi >= config["min_abs_delta_psi"]))
+        ]
+        print(diff_spl_cluster.shape)
+        diff_spl_cluster = diff_spl_cluster.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+        print(diff_spl_cluster.shape)
+        def max_abs_lfc_psi_unannotated(row_cluster):
+            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
+            return (introns.abs_lfc_psi * (~introns.annotated).astype(int)).max()
+        diff_spl_cluster["max_abs_lfc_psi_unannotated"] = diff_spl_cluster.apply(max_abs_lfc_psi_unannotated, axis=1)
+        #diff_spl_cluster["Annotated"] = diff_spl_cluster.max_abs_lfc_psi_unannotated < config["min_abs_lfc"]
+        def max_abs_delta_psi_unannotated(row_cluster):
+            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
+            return (introns.abs_delta_psi * (~introns.annotated).astype(int)).max()
+        diff_spl_cluster["max_abs_delta_psi_unannotated"] = diff_spl_cluster.apply(max_abs_delta_psi_unannotated, axis=1)
+        diff_spl_cluster["Annotated"] = diff_spl_cluster.max_abs_delta_psi_unannotated < config["min_abs_delta_psi"]
+
+        #coordinates = diff_spl_intron.groupby("cluster").agg({"chromosome": "first", "start": "unique", "end": "unique"})
+        #diff_spl_cluster = diff_spl_cluster.merge(coordinates, how="left", left_index=True, right_index=True)
+
+        print(diff_spl_cluster.Annotated.value_counts())
+        def get_diff_exp_rank(row_cluster):
+            try:
+                return diff_exp.loc[row_cluster.gene_id].ranking
+            except KeyError:
+                return np.nan
+        diff_spl_cluster["diff_exp_rank"] = diff_spl_cluster.apply(get_diff_exp_rank, axis=1)
+        def check_region(row_cluster):
+            try:
+                cds = gene_cds.loc[row_cluster.gene_id]
+            except KeyError:
+                return "Non-coding"
+            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
+            cluster_start = introns.start.min()
+            cluster_end = introns.end.max()
+            if cds.strand == "+":
+                if cluster_start < cds.start:
+                    return "5' UTR"
+                if cluster_start < cds.end:
+                    return "CDS"
+                return "3' UTR"
+            elif cds.strand == "-":
+                if cluster_start < cds.start:
+                    return "3' UTR"
+                if cluster_start < cds.end:
+                    return "CDS"
+                return "5' UTR"
+            else:
+                raise Exception("strand not implemented")
+        diff_spl_cluster["Region"] = diff_spl_cluster.apply(check_region, axis=1)
+        print(diff_spl_cluster.Region.value_counts())
+        diff_spl_cluster.max_abs_delta_psi = diff_spl_cluster.max_abs_delta_psi.round(decimals=3)
+
+        diff_spl_cluster.to_csv(
+            output[0], "\t",
+            columns=["gene_id", "gene_name", "p_value", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank"],
+            #columns=["gene_id", "gene_name", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "p_value", "chromosome", "start", "end"],
+        )
+
+
+rule merge_significant:
+    input:
+        expand('output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.significant.tsv', subclass_label=subclass_labels),
+    output:
+        "output/diff_spl/subclass_label/merged_significant.tsv",
+    run:
+        dfs = []
+        for subclass_label, input_path in zip(subclass_labels, input):
+            df = pd.read_csv(input_path, "\t")
+            df["Cell type"] = subclass_label.replace("_", " ").replace("slash", "/")
+            dfs.append(df)
+        df = pd.concat(dfs, ignore_index=True)
+        df = df.sort_values("p_value_adj")
+        df.to_csv(output[0], "\t", index=False)
+
+
+rule plot_significant:
+    input:
+        "output/diff_spl/subclass_label/merged_significant.tsv",
+    output:
+        "output/diff_spl/subclass_label/merged_significant_all.svg",
+        "output/diff_spl/subclass_label/merged_significant_5p.svg",
+        "output/diff_spl/subclass_label/merged_significant_cds.svg",
+        "output/diff_spl/subclass_label/merged_significant_3p.svg",
+        "output/diff_spl/subclass_label/merged_significant_aggregate.svg",
+    run:
+        df_all = pd.read_csv(input[0], "\t")
+        df_all = df_all[df_all["Cell type"].isin(cell_type_order)]
+        df_all["Type"] = df_all.Annotated
+        df_all.Type = df_all.Type.replace(True, "Annotated").replace(False, "Novel")
+        df_all.Region = df_all.Region.replace("Non-coding", "Non-coding RNA")
+
+        def plot_counts(df, output_path):
+            df_plot = df.groupby(["Type", "Cell type"]).size().reset_index().pivot(columns='Type', index='Cell type', values=0)
+            print(df_plot)
+            df_plot = df_plot.loc[cell_type_order]
+            print(df_plot)
+            g = df_plot.plot(kind='bar', stacked=True)
+            g.set_xticklabels(g.get_xticklabels(), rotation=45, horizontalalignment='right')
+            #g.set(xlabel='Cell type', ylabel='Diff. spl. events')
+            g.set(xlabel="", ylabel='Diff. spl. events')
+            sns.despine()
+            #sns.despine(left=True)
+            plt.legend(loc='upper right')
+            plt.savefig(output_path, bbox_inches='tight')
+            plt.close()
+        plot_counts(df_all, output[0])
+        plot_counts(df_all[df_all.Region=="5' UTR"], output[1])
+        plot_counts(df_all[df_all.Region=="CDS"], output[2])
+        plot_counts(df_all[df_all.Region=="3' UTR"], output[3])
+        df = df_all
+        df_plot = df.groupby(["Type", "Region"]).size().reset_index().pivot(columns='Type', index='Region', values=0).loc[["5' UTR", "CDS", "3' UTR", "Non-coding RNA"]]
+        g = df_plot.plot(kind='bar', stacked=True)
+        g.set_xticklabels(g.get_xticklabels(), rotation=45, horizontalalignment='right')
+        #g.set(xlabel='Region', ylabel='Diff. spl. events')
+        g.set(xlabel="", ylabel='Diff. spl. events')
+        #sns.despine(left=True)
+        sns.despine()
+        plt.legend(loc='upper right')
+        plt.savefig(output[4], bbox_inches='tight')
 #
 #
 #rule dimensionality_reduction_expression:
@@ -646,120 +650,121 @@ rule add_metadata:
 #        np.savetxt(output[0], latent)
 #
 #
-#rule compare_latent_exp_spl:
-#    input:
-#        "output/dimensionality_reduction/expression/PCA/latent.txt",
-#        "output/dimensionality_reduction/splicing/PCA/latent.txt",
-#    output:
-#        "output/comparison/exp_spl/cell_type.svg",
-#    run:
-#        dfs = []
-#        for name, input_path in zip(["Expression", "Splicing"], input):
-#            df = sample_info.copy()
-#            latent = np.loadtxt(input_path)
-#            #proj = UMAP(min_dist=1.0, n_neighbors=15, random_state=42).fit_transform(latent)
-#            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
-#            df["UMAP 1"] = proj[:, 0]
-#            df["UMAP 2"] = proj[:, 1]
-#            df["Quantification"] = name
-#            dfs.append(df)
-#        df = pd.concat(dfs)
-#        df = df[df["Cell type"].isin(cell_type_order)]
-#        g = sns.relplot(
-#            data=df,
-#            x="UMAP 1",
-#            y="UMAP 2",
-#            hue="Cell type",
-#            hue_order=cell_type_order,
-#            col="Quantification",
-#            col_order=["Expression", "Splicing"],
-#            kind="scatter",
-#            facet_kws={'sharey': False, 'sharex': False},
-#            height=3,
-#            palette="tab10",
-#            edgecolor="none",
-#            s=4,
-#        )
-#        g.set_titles(col_template="{col_name} latent space")
-#        g.fig.subplots_adjust(wspace=0.1)
-#        for ax in g.axes.flat:
-#            ax.set_xticks([])
-#            ax.set_yticks([])
-#            ax.set_ylabel("UMAP 2")
-#        sns.despine()
-#        plt.savefig(output[0], bbox_inches='tight')
+rule compare_latent_exp_spl:
+    input:
+        "output/dimensionality_reduction/all/gene-expression/pca_20/latent.txt",
+        "output/dimensionality_reduction/all/introns-transitive/pca_20/latent.txt",
+        #"output/dimensionality_reduction/splicing/PCA/latent.txt",
+    output:
+        "output/comparison/exp_spl/cell_type.svg",
+    run:
+        dfs = []
+        for name, input_path in zip(["Expression", "Splicing"], input):
+            df = sample_info.copy()
+            latent = np.loadtxt(input_path)
+            #proj = UMAP(min_dist=1.0, n_neighbors=15, random_state=42).fit_transform(latent)
+            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
+            df["UMAP 1"] = proj[:, 0]
+            df["UMAP 2"] = proj[:, 1]
+            df["Quantification"] = name
+            dfs.append(df)
+        df = pd.concat(dfs)
+        df = df[df["Cell type"].isin(cell_type_order)]
+        g = sns.relplot(
+            data=df,
+            x="UMAP 1",
+            y="UMAP 2",
+            hue="Cell type",
+            hue_order=cell_type_order,
+            col="Quantification",
+            col_order=["Expression", "Splicing"],
+            kind="scatter",
+            facet_kws={'sharey': False, 'sharex': False},
+            height=3,
+            palette="tab10",
+            edgecolor="none",
+            s=4,
+        )
+        g.set_titles(col_template="{col_name} latent space")
+        g.fig.subplots_adjust(wspace=0.1)
+        for ax in g.axes.flat:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_ylabel("UMAP 2")
+        sns.despine()
+        plt.savefig(output[0], bbox_inches='tight')
+
+
+rule shuffle_counts:
+    input:
+        "output/quantification/{quantification}/adata_annotated.h5ad",
+    output:
+        "output/quantification/{quantification}-shuffled/adata_annotated.h5ad",
+    run:
+        adata = anndata.read_h5ad(input[0])
+        adata.X = adata.X.toarray()
+        clusters = adata.var.cluster.values
+        print(clusters.max())
+
+        cluster_introns_idx = defaultdict(list)
+        for i, cluster in enumerate(clusters):
+            cluster_introns_idx[cluster].append(i)
+
+        for c in range(clusters.max()+1):
+            if c % 1000 == 0: print(c)
+            idx = cluster_introns_idx[c]
+            p = len(idx)
+            # probs = np.full(p, 1/p)
+            probs = np.random.dirichlet(np.ones(p))
+            sums = adata.X[:,idx].sum(axis=1)
+            for i in range(adata.X.shape[0]):
+                adata.X[i,idx] = np.random.multinomial(sums[i], probs)
+
+        adata.X = sp_sparse.csr_matrix(adata.X)
+        adata.write(output[0], compression="gzip")
 #
 #
-#rule shuffle_counts:
-#    input:
-#        "output/quantification/{quantification}/adata_annotated.h5ad",
-#    output:
-#        "output/quantification/{quantification}-shuffled/adata_annotated.h5ad",
-#    run:
-#        adata = anndata.read_h5ad(input[0])
-#        adata.X = adata.X.toarray()
-#        clusters = adata.var.cluster.values
-#        print(clusters.max())
-#
-#        cluster_introns_idx = defaultdict(list)
-#        for i, cluster in enumerate(clusters):
-#            cluster_introns_idx[cluster].append(i)
-#
-#        for c in range(clusters.max()+1):
-#            if c % 1000 == 0: print(c)
-#            idx = cluster_introns_idx[c]
-#            p = len(idx)
-#            # probs = np.full(p, 1/p)
-#            probs = np.random.dirichlet(np.ones(p))
-#            sums = adata.X[:,idx].sum(axis=1)
-#            for i in range(adata.X.shape[0]):
-#                adata.X[i,idx] = np.random.multinomial(sums[i], probs)
-#
-#        adata.X = sp_sparse.csr_matrix(adata.X)
-#        adata.write(output[0], compression="gzip")
-#
-#
-#rule compare_latent_shuffled:
-#    input:
-#        "output/dimensionality_reduction/splicing/PCA/latent.txt",
-#        "output/dimensionality_reduction/splicing-shuffled/PCA/latent.txt",
-#    output:
-#        "output/comparison/shuffled/cell_type.pdf",
-#    run:
-#        dfs = []
-#        for name, input_path in zip(["Splicing", "Splicing (shuffled)"], input):
-#            df = sample_info.copy()
-#            latent = np.loadtxt(input_path)
-#            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
-#            df["UMAP 1"] = proj[:, 0]
-#            df["UMAP 2"] = proj[:, 1]
-#            df["Quantification"] = name
-#            dfs.append(df)
-#        df = pd.concat(dfs)
-#        df = df[df["Cell type"].isin(cell_type_order)]
-#        g = sns.relplot(
-#            data=df,
-#            x="UMAP 1",
-#            y="UMAP 2",
-#            hue="Cell type",
-#            hue_order=cell_type_order,
-#            col="Quantification",
-#            col_order=["Splicing", "Splicing (shuffled)"],
-#            kind="scatter",
-#            facet_kws={'sharey': False, 'sharex': False},
-#            height=3,
-#            palette="tab10",
-#            edgecolor="none",
-#            s=4,
-#        )
-#        g.set_titles(col_template="{col_name}")
-#        g.fig.subplots_adjust(wspace=0.1)
-#        for ax in g.axes.flat:
-#            ax.set_xticks([])
-#            ax.set_yticks([])
-#            ax.set_ylabel("UMAP 2")
-#        sns.despine()
-#        plt.savefig(output[0], bbox_inches='tight')
+rule compare_latent_shuffled:
+    input:
+        "output/dimensionality_reduction/all/introns-transitive/pca_20/latent.txt",
+        "output/dimensionality_reduction/all/introns-transitive-shuffled/pca_20/latent.txt",
+    output:
+        "output/comparison/shuffled/cell_type.pdf",
+    run:
+        dfs = []
+        for name, input_path in zip(["Splicing", "Splicing (shuffled)"], input):
+            df = sample_info.copy()
+            latent = np.loadtxt(input_path)
+            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
+            df["UMAP 1"] = proj[:, 0]
+            df["UMAP 2"] = proj[:, 1]
+            df["Quantification"] = name
+            dfs.append(df)
+        df = pd.concat(dfs)
+        df = df[df["Cell type"].isin(cell_type_order)]
+        g = sns.relplot(
+            data=df,
+            x="UMAP 1",
+            y="UMAP 2",
+            hue="Cell type",
+            hue_order=cell_type_order,
+            col="Quantification",
+            col_order=["Splicing", "Splicing (shuffled)"],
+            kind="scatter",
+            facet_kws={'sharey': False, 'sharex': False},
+            height=3,
+            palette="tab10",
+            edgecolor="none",
+            s=4,
+        )
+        g.set_titles(col_template="{col_name}")
+        g.fig.subplots_adjust(wspace=0.1)
+        for ax in g.axes.flat:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_ylabel("UMAP 2")
+        sns.despine()
+        plt.savefig(output[0], bbox_inches='tight')
 #
 #
 #rule psi_plot:
@@ -853,91 +858,95 @@ rule add_metadata:
 #            plt.clf()
 #
 #
-#rule diff_test_summary:
-#    input:
-#        'output/{anything}/expression.csv',
-#        'output/{anything}/splicing.clusters.csv',
-#    output:
-#        'output/{anything}/summary.tsv',
-#    run:
-#        df_exp = pd.read_csv(input[0], "\t")
-#        df_spl = pd.read_csv(input[1], "\t")
-#        n_genes_exp = ((df_exp.p_value_adj < config["fdr"]) & (df_exp.abs_lfc > config["min_abs_lfc"])).sum()
-#        n_genes_spl = len(df_spl[(df_spl.p_value_adj < config["fdr"]) & (df_spl.max_abs_delta_psi > config["min_abs_delta_psi"])].gene_id.unique())
-#        ratio = n_genes_spl / n_genes_exp
-#        intersection = len(list(set(df_exp.gene.unique()[:100]).intersection(set(df_spl.gene_id.unique()[:100]))))
-#        print(n_genes_exp, n_genes_spl, ratio, intersection)
-#        res = pd.DataFrame([[n_genes_exp, n_genes_spl, ratio, intersection]], columns=["n_genes_exp", "n_genes_spl", "ratio", "top100_intersection"])
-#        res.to_csv(output[0], "\t", index=False)
-#
-#
-#
-#rule get_marker_introns:
-#    input:
-#        'output/{anything}/splicing.clusters.csv',
-#        'output/{anything}/splicing.introns.csv',
-#    output:
-#        'output/{anything}/marker_introns.tsv',
-#    run:
-#        groups = pd.read_csv(input[0], "\t")
-#        introns = pd.read_csv(input[1], "\t")
-#        introns["id"] = introns.chromosome.astype(str) + ":" + introns.start.astype(str) + "-" + introns.end.astype(str)
-#        introns = introns.set_index("id")
-#        groups = groups[(groups.p_value_adj < config["fdr"])].sort_values("max_abs_delta_psi", ascending=False).head(10)
-#        print(groups.max_abs_delta_psi)
-#        marker_introns = groups.cluster.apply(lambda x: introns[introns.cluster==x].delta_psi.idxmax())
-#        print(marker_introns)
-#        marker_introns.to_csv(output[0], index=False, header=False)
-#
-#
-#rule plot_marker_introns:
-#    input:
-#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-#        expand('output/diff_spl/subclass_label/{subclass_label}/marker_introns.tsv', subclass_label=subclass_labels),
-#    output:
-#        'output/diff_spl/subclass_label/marker_introns.svg',
-#    run:
-#        adata_spl = anndata.read_h5ad(input[0])
-#        adata_spl.var["prev_id"] = adata_spl.var.index.values
-#        adata_spl.var["id"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
-#        adata_spl.var = adata_spl.var.set_index("id")
-#
-#        all_marker_introns = []
-#        for cell_type in cell_type_order:
-#            subclass_label = cell_type.replace(" ", "_").replace("/", "slash")
-#            marker_introns = pd.read_csv(f"output/diff_spl/subclass_label/{subclass_label}/marker_introns.tsv", "\t", header=None).values.astype(str).ravel().tolist()[:5]
-#            all_marker_introns += marker_introns
-#        print(all_marker_introns)
-#        print(len(all_marker_introns))
-#        all_marker_introns = pd.unique(all_marker_introns)
-#        print(len(all_marker_introns))
-#        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
-#        adata_spl.obs["Cell type"] = adata_spl.obs.subclass_label.str.replace("_", " ").str.replace("slash", "/")
-#        adata_spl = adata_spl[adata_spl.obs["Cell type"].isin(cell_type_order)]
-#        adata_spl = adata_spl[:, all_marker_introns]
-#        for cell_type in cell_type_order:
-#            print(cell_type)
-#            for intron in all_marker_introns:
-#                idx_cells = np.where(adata_spl.obs["Cell type"]==cell_type)[0]
-#                n_defined = (~np.isnan(adata_spl[idx_cells, intron].X)).sum()
-#                if n_defined < 10:
-#                    adata_spl[idx_cells, intron].X = np.nan
-#        gene_name = pd.read_csv("output/gene_name.txt", "\t", index_col=0)
-#        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
-#        #adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.index
-#        adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
-#        adata_spl.var = adata_spl.var.set_index("id")
-#
-#        g = sc.pl.matrixplot(
-#            adata_spl,
-#            adata_spl.var.index.values,
-#            groupby='Cell type',
-#            categories_order=cell_type_order,
-#            return_fig=True, vmin=0.0, vmax=1.0, cmap='bwr', swap_axes=True, colorbar_title="Mean PSI")
-#        plt.tight_layout()
-#        g.savefig(output[0], bbox_inches="tight")
-#
-#
+rule diff_test_summary:
+    input:
+        'output/{anything}/expression.tsv',
+        'output/{anything}/splicing.clusters.tsv',
+    output:
+        'output/{anything}/summary.tsv',
+    run:
+        df_exp = pd.read_csv(input[0], "\t")
+        df_spl = pd.read_csv(input[1], "\t")
+        n_genes_exp = ((df_exp.p_value_adj < config["fdr"]) & (df_exp.abs_lfc > config["min_abs_lfc"])).sum()
+        n_genes_spl = len(df_spl[(df_spl.p_value_adj < config["fdr"]) & (df_spl.max_abs_delta_psi > config["min_abs_delta_psi"])].gene_id.unique())
+        ratio = n_genes_spl / n_genes_exp
+        intersection = len(list(set(df_exp.gene.unique()[:100]).intersection(set(df_spl.gene_id.unique()[:100]))))
+        print(n_genes_exp, n_genes_spl, ratio, intersection)
+        res = pd.DataFrame([[n_genes_exp, n_genes_spl, ratio, intersection]], columns=["n_genes_exp", "n_genes_spl", "ratio", "top100_intersection"])
+        res.to_csv(output[0], "\t", index=False)
+
+
+
+rule get_marker_introns:
+    input:
+        'output/{anything}/splicing.clusters.tsv',
+        'output/{anything}/splicing.introns.tsv',
+    output:
+        'output/{anything}/marker_introns.tsv',
+    run:
+        groups = pd.read_csv(input[0], "\t")
+        introns = pd.read_csv(input[1], "\t")
+        introns["id"] = introns.chromosome.astype(str) + ":" + introns.start.astype(str) + "-" + introns.end.astype(str)
+        introns = introns.set_index("id")
+        groups = groups[(groups.p_value_adj < config["fdr"])].sort_values("max_abs_delta_psi", ascending=False).head(10)
+        print(groups.max_abs_delta_psi)
+        marker_introns = groups.cluster.apply(lambda x: introns[introns.cluster==x].delta_psi.idxmax())
+        print(marker_introns)
+        marker_introns.to_csv(output[0], index=False, header=False)
+
+
+rule plot_marker_introns:
+    input:
+        "output/quantification/introns-transitive/adata_annotated.h5ad",
+        expand('output/diff_spl/subclass_label/{subclass_label}/marker_introns.tsv', subclass_label=subclass_labels),
+    output:
+        'output/diff_spl/subclass_label/marker_introns.svg',
+    run:
+        adata_spl = anndata.read_h5ad(input[0])
+        adata_spl = recluster(adata_spl)
+        adata_spl.var["prev_id"] = adata_spl.var.index.values
+        adata_spl.var["id"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
+        adata_spl.var = adata_spl.var.set_index("id")
+
+        all_marker_introns = []
+        for cell_type in cell_type_order:
+            subclass_label = cell_type.replace(" ", "_").replace("/", "slash")
+            marker_introns = pd.read_csv(f"output/diff_spl/subclass_label/{subclass_label}/marker_introns.tsv", "\t", header=None).values.astype(str).ravel().tolist()[:5]
+            all_marker_introns += marker_introns
+        print(all_marker_introns)
+        print(len(all_marker_introns))
+        all_marker_introns = pd.unique(all_marker_introns)
+        print(len(all_marker_introns))
+        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
+        adata_spl.obs["Cell type"] = adata_spl.obs.subclass_label.str.replace("_", " ").str.replace("slash", "/")
+        adata_spl = adata_spl[adata_spl.obs["Cell type"].isin(cell_type_order)]
+        adata_spl = adata_spl[:, all_marker_introns]
+        for cell_type in cell_type_order:
+            print(cell_type)
+            for intron in all_marker_introns:
+                idx_cells = np.where(adata_spl.obs["Cell type"]==cell_type)[0]
+                n_defined = (~np.isnan(adata_spl[idx_cells, intron].X)).sum()
+                if n_defined < 10:
+                    adata_spl[idx_cells, intron].X = np.nan
+        gene_name = pd.read_csv("output/gene_name.txt", "\t", index_col=0)
+        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+        #adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.index
+        adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
+        adata_spl.var = adata_spl.var.set_index("id")
+
+        g = sc.pl.matrixplot(
+            adata_spl,
+            adata_spl.var.index.values,
+            groupby='Cell type',
+            categories_order=cell_type_order,
+            return_fig=True, vmin=0.0, vmax=1.0,
+            #cmap='bwr',
+            cmap='coolwarm',
+            swap_axes=True, colorbar_title="Mean PSI")
+        plt.tight_layout()
+        g.savefig(output[0], bbox_inches="tight")
+
+
 def calculate_classification_metrics(latent, classes, idx, seed=None):
     latent = latent[idx]
     classes = classes[idx]
@@ -958,44 +967,44 @@ def calculate_classification_metrics(latent, classes, idx, seed=None):
     y_pred = clf.predict(X_test)
     y_proba = clf.predict_proba(X_test)
     return accuracy_score(y_test, y_pred), f1_score(y_test, y_pred), roc_auc_score(y_test, y_proba[:, 1])
-#
-#
-#rule get_classification_score:
-#    input:
-#        "output/dimensionality_reduction/expression/PCA/latent.txt",
-#        "output/dimensionality_reduction/splicing/PCA/latent.txt",
-#    output:
-#        "output/dimensionality_reduction/classification_score.tsv",
-#    run:
-#        latent_exp = np.loadtxt(input[0])
-#        latent_spl = np.loadtxt(input[1])
-#
-#        idx = slice(None)
-#        results = []
-#        for cell_type in cell_type_order:
-#            print(cell_type)
-#            labels = sample_info["Cell type"] == cell_type
-#            for seed in range(30):
-#                results.append((cell_type, "Expression", seed, *calculate_classification_metrics(latent_exp, labels, idx, seed)))
-#                results.append((cell_type, "Splicing", seed, *calculate_classification_metrics(latent_spl, labels, idx, seed)))
-#        results = pd.DataFrame(results, columns=['Cell type', 'Latent space', 'seed', 'accuracy', 'F1 score', "AUC"])
-#        results.to_csv(output[0], "\t", index=False)
-#
-#
-#rule plot_classification_score:
-#    input:
-#        "output/dimensionality_reduction/classification_score.tsv",
-#    output:
-#        "output/dimensionality_reduction/classification_score.svg",
-#    run:
-#        df = pd.read_csv(input[0], "\t")
-#        g = sns.barplot(x="Cell type", y="AUC", hue="Latent space", order=cell_type_order, data=df, ci='sd', palette="Accent");
-#        g.set_xticklabels(g.get_xticklabels(), rotation=45,  horizontalalignment='right')
-#        g.set(xlabel="")
-#        sns.despine()
-#        #plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0., title="latent space");
-#        plt.tight_layout()
-#        plt.savefig(output[0], bbox_inches="tight")
+
+
+rule get_classification_score:
+    input:
+        "output/dimensionality_reduction/all/gene-expression/pca_20/latent.txt",
+        "output/dimensionality_reduction/all/introns-transitive/pca_20/latent.txt",
+    output:
+        "output/dimensionality_reduction/classification_score.tsv",
+    run:
+        latent_exp = np.loadtxt(input[0])
+        latent_spl = np.loadtxt(input[1])
+
+        idx = slice(None)
+        results = []
+        for cell_type in cell_type_order:
+            print(cell_type)
+            labels = sample_info["Cell type"] == cell_type
+            for seed in range(30):
+                results.append((cell_type, "Expression", seed, *calculate_classification_metrics(latent_exp, labels, idx, seed)))
+                results.append((cell_type, "Splicing", seed, *calculate_classification_metrics(latent_spl, labels, idx, seed)))
+        results = pd.DataFrame(results, columns=['Cell type', 'Latent space', 'seed', 'accuracy', 'F1 score', "AUC"])
+        results.to_csv(output[0], "\t", index=False)
+
+
+rule plot_classification_score:
+    input:
+        "output/dimensionality_reduction/classification_score.tsv",
+    output:
+        "output/dimensionality_reduction/classification_score.svg",
+    run:
+        df = pd.read_csv(input[0], "\t")
+        g = sns.barplot(x="Cell type", y="AUC", hue="Latent space", order=cell_type_order, data=df, ci='sd', palette="Accent");
+        g.set_xticklabels(g.get_xticklabels(), rotation=45,  horizontalalignment='right')
+        g.set(xlabel="")
+        sns.despine()
+        #plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0., title="latent space");
+        plt.tight_layout()
+        plt.savefig(output[0], bbox_inches="tight")
 #
 #
 #rule prepare_adata_for_cellxgene:
@@ -1312,6 +1321,8 @@ rule dimensionality_reduction_all_pca:
         adata = anndata.read_h5ad(input[0])
         if wildcards["quantification"] != "bins-nmf":
             adata = filter_min_cells_per_feature(adata, 100)
+        if wildcards["quantification"] == "introns-transitive" or wildcards["quantification"] == "introns-transitive-shuffled":
+            adata = recluster(adata)
         print(adata.shape)
         latent = run_pca(adata, int(wildcards["k"]))
         np.savetxt(output[0], latent)
