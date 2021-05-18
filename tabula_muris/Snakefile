@@ -99,6 +99,8 @@ sample_info["plate_id"] = sample_info.index.str.split("_").str[1]
 sample_ids_subset = sorted(sample_info[sample_info.tissue=="Mammary_Gland"].index.values)
 print("len(sample_ids_subset): ", len(sample_ids_subset))
 
+sample_ids_leafcutter = sample_ids_subset
+
 # zcat GSE109774_list_of_SRR_accessions_and_raw_filenames.txt.gz | cut -f 2,3 | cut -d "-" -f 1-2 | sed 's/-/_/g' > srr_cell_pairs.txt
 sample_srr = pd.read_csv("srr_cell_pairs.txt", '\t', header=None, names=['srr', 'cell'])
 sample_srr = sample_srr[sample_srr.cell.isin(sample_ids)]
@@ -113,7 +115,7 @@ sample_srr = sample_srr[sample_srr.cell.isin(sample_ids)]
 
 quantifications_mg_individual = ["gene-expression", "kallisto", "bins-nmf", "introns-shared-acceptor"]
 #quantifications_mg_individual_expanded = ["gene-expression", "kallisto", "bins", "exons", "introns-gene", "introns-transitive", "SE", "introns-shared-acceptor"]
-quantifications_mg_individual_expanded = ["gene-expression", "kallisto", "bins", "exons", "introns-gene", "introns-transitive"]
+quantifications_mg_individual_expanded = ["gene-expression", "kallisto", "bins", "exons", "introns-gene", "leafcutter", "introns-transitive"]
 #quantifications_mg_individual_expanded = ["gene-expression", "exons", "introns-gene", "introns-transitive", "SE", "introns-shared-acceptor"]
 #quantifications_mg_individual_expanded = ["gene-expression", "kallisto", "bins-nmf"]
 
@@ -164,6 +166,8 @@ cell_type_order = ["(1) pro-B", "(2) pre-B", "(3) immature B", "(4) naive B"]
 
 rule all:
     input:
+        #"output/quantification/leafcutter/adata_annotated.h5ad",
+        #expand("output/comparison/tissue/Brain_Myeloid/{label}.svg", label=labels)
         #"output/dimensionality_reduction/marrow/classification_score.svg",
         #"output/quantification/SE/adata_annotated.h5ad",
         #"output/comparison/mg_3_38_F/classification_results_plots/",
@@ -176,9 +180,9 @@ rule all:
         #"output/dimensionality_reduction/marrow/classification_score.svg",
         #expand("output/plots/{gene}.svg", gene=genes_to_plot),
         #expand("output/plots/{intron}.svg", intron=introns_to_plot),
-        expand("output/comparison/marrow_b/{label}.svg", label=labels),
+        #expand("output/comparison/marrow_b/{label}.svg", label=labels),
         #"output/comparison/cortex_3_9_M/cell_ontology_class.svg",
-        #"output/comparison/mg_3_38_F/cell_ontology_class.svg",
+        "output/comparison/mg_3_38_F/cell_ontology_class.svg",
         #expand("output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_all.svg", tissue=pd.unique([t for t, ct in tissue_cell_type_pairs])),
         #expand("output/coverage_track/mg_basal_individual_plate/3_38_F/{plate}/coverage.bw", plate=["B002433", "B002432", "B002438"]),
         #expand(
@@ -389,7 +393,7 @@ rule add_metadata:
     input:
         "output/quantification/{quantification}/adata.h5ad",
     output:
-        "output/quantification/{quantification,gene-expression|kallisto-SE|exons|bins|kallisto|introns-gene|introns-shared-acceptor|introns-nontransitive|introns-transitive}/adata_annotated.h5ad",
+        "output/quantification/{quantification,gene-expression|leafcutter|kallisto-SE|exons|bins|kallisto|introns-gene|introns-shared-acceptor|introns-nontransitive|introns-transitive}/adata_annotated.h5ad",
     run:
         adata = anndata.read_h5ad(input[0])
         print(adata.obs)
@@ -559,7 +563,7 @@ rule dimensionality_reduction_mg_pca:
         if wildcards["quantification"] != "bins-nmf":
             adata = filter_min_cells_per_feature(adata, 100)
         print(adata.shape)
-        if wildcards["quantification"] == "introns-transitive":
+        if wildcards["quantification"] == "introns-transitive" or wildcards["quantification"] == "leafcutter":
             adata = recluster(adata)
         print(adata.shape)
         latent = run_pca(adata, int(wildcards["k"]))
@@ -960,7 +964,7 @@ rule compare_latent_custom_plot:
                 #name = "Alt. intron proportions \n (scQuint)"
                 name = "scQuint"
             if name == "introns-transitive":
-                name = "LeafCutter"
+                name = "LeafCutter (ours)"
             if name == "introns-gene":
                 name = "DESJ"
             if name == "SE":
@@ -983,7 +987,8 @@ rule compare_latent_custom_plot:
             data=df, x="UMAP 1", y="UMAP 2",
             row="Quantification",
             #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
-            row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter"],
+            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter"],
+            row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "leafcutter", "LeafCutter (ours)"],
             hue="Cell type",
             kind="scatter",
             facet_kws={'sharey': False, 'sharex': False},
@@ -1008,7 +1013,8 @@ rule compare_latent_custom_plot:
             data=df, x="UMAP 1", y="UMAP 2",
             row="Quantification",
             #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
-            row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter"],
+            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter"],
+            row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "leafcutter", "LeafCutter (ours)"],
             hue="Plate ID",
             kind="scatter",
             facet_kws={'sharey': False, 'sharex': False, "margin_titles": False},
@@ -2002,3 +2008,140 @@ rule dimensionality_reduction_marrow_pca:
             adata = recluster(adata)
         latent = run_pca(adata, int(wildcards["K"]))
         np.savetxt(output[0], latent)
+
+
+rule dimensionality_reduction_tissue_pca:
+    input:
+        "output/quantification/{quantification}/adata_annotated.h5ad",
+    output:
+        "output/dimensionality_reduction/tissue/{tissue}/{quantification}/pca_{k}/latent.txt",
+    wildcard_constraints: quantification='.+(?<!gene-expression)'
+    run:
+        adata = anndata.read_h5ad(input[0])
+        adata = adata[(adata.obs.tissue==wildcards["tissue"])]
+        if wildcards["quantification"] != "bins-nmf":
+            adata = filter_min_cells_per_feature(adata, 100)
+        print(adata.shape)
+        if wildcards["quantification"] == "introns-transitive":
+            adata = recluster(adata)
+        print(adata.shape)
+        latent = run_pca(adata, int(wildcards["k"]))
+        np.savetxt(output[0], latent)
+
+
+rule dimensionality_reduction_tissue_expression:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+    output:
+        "output/dimensionality_reduction/tissue/{tissue}/gene-expression/pca_{k}/latent.txt",
+    run:
+        adata = anndata.read_h5ad(input[0])
+        adata = adata[(adata.obs.tissue==wildcards["tissue"])]
+        sc.pp.filter_genes(adata, min_cells=100)
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
+        X = adata.X.toarray()
+        latent = PCA(n_components=int(wildcards["k"])).fit_transform(X)
+        np.savetxt(output[0], latent)
+
+
+rule compare_latent_tissue:
+    input:
+        "output/dimensionality_reduction/tissue/{tissue}/gene-expression/pca_20/latent.txt",
+        "output/dimensionality_reduction/tissue/{tissue}/introns-transitive/pca_20/latent.txt",
+    output:
+        expand("output/comparison/tissue/{{tissue}}/{label}.svg", label=labels)
+    run:
+        obs = sample_info.copy()
+        idx = np.where((obs.tissue==wildcards["tissue"]))[0]
+        obs = obs.iloc[idx]
+
+        dfs = []
+        for name, input_path in zip(["Expression latent space", "Splicing latent space"], input):
+            df = obs.copy()
+            latent = np.loadtxt(input_path)
+
+            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
+            df["UMAP 1"] = proj[:, 0]
+            df["UMAP 2"] = proj[:, 1]
+            df["Quantification"] = name
+            dfs.append(df)
+        df = pd.concat(dfs)
+        for i, label in enumerate(labels):
+            g = sns.relplot(
+                data=df, x="UMAP 1", y="UMAP 2",
+                col="Quantification", hue=label,
+                kind="scatter", facet_kws={'sharey': False, 'sharex': False},
+                height=3, palette="tab10", edgecolor="none", s=4,
+               )
+            g.set_titles(col_template="{col_name}")
+            g.fig.subplots_adjust(wspace=0.1)
+            for ax in g.axes.flat:
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.set_ylabel("UMAP 2")
+            sns.despine()
+            plt.savefig(output[i], bbox_inches='tight')
+
+
+rule leafcutter_extract:
+    input:
+        "output/mapping/filtered_bams/{sample_id}.bam",
+    output:
+        "output/quantification/leafcutter/juncs/{sample_id}.junc"
+    shell:
+        """
+        samtools index {input} &&
+        regtools junctions extract -s0 -a 8 -m 50 -M 500000 {input} -o {output}
+        """
+
+
+rule leafcutter_prepare_junc_files:
+    input:
+        expand("output/quantification/leafcutter/juncs/{sample_id}.junc", sample_id=sample_ids_leafcutter),
+    output:
+        "output/quantification/leafcutter/juncfiles.txt",
+    run:
+        for path in input:
+            shell(f"echo {path} >> {output}")
+
+
+rule leafcutter_cluster:
+    input:
+        "output/quantification/leafcutter/juncfiles.txt",
+    output:
+        "output/quantification/leafcutter/_perind_numers.counts.gz",
+    shell:
+        """
+        ~/miniconda2/bin/python leafcutter/clustering/leafcutter_cluster_regtools.py --checkchrom -j {input} -m 50 -o output/quantification/leafcutter/ -l 500000
+        """
+
+
+rule leafcutter_make_adata:
+    input:
+        "output/quantification/leafcutter/_perind_numers.counts.gz",
+    output:
+        "output/quantification/leafcutter/adata.h5ad",
+    run:
+        df = pd.read_csv(input[0], " ", index_col=0).T
+        print(df)
+        df = df.loc[sample_ids_leafcutter]
+        print(df)
+        X = sp_sparse.csr_matrix(df.values)
+        print(X.shape)
+        obs = pd.DataFrame(index=df.index)
+        print(obs)
+        var = pd.DataFrame(index=df.columns)
+        var["chromosome"] = var.index.str.split(":").str[0]
+        var["start"] = var.index.str.split(":").str[1]
+        var["end"] = var.index.str.split(":").str[2]
+        var["cluster"] = var.index.str.split(":").str[3]
+        print(var)
+        adata = anndata.AnnData(X=X, obs=obs, var=var)
+        print(adata.shape)
+        adata = filter_min_cells_per_feature(adata, 30)
+        print(adata.shape)
+        adata = recluster(adata)
+        print(adata.shape)
+        adata.var["original_cluster"] = adata.var.cluster
+        adata.write(output[0], compression="gzip")
