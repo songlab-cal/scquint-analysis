@@ -34,6 +34,8 @@ from scquint.utils import (filter_min_cells_per_cluster,
                            filter_min_cells_per_feature, filter_singletons,
                            group_normalize, relabel,
                            run_differential_expression, recluster)
+from spliceVI.dimensionality_reduction import run_vae
+
 
 matplotlib.use('pdf')
 
@@ -94,8 +96,9 @@ subclass_labels = sample_info.subclass_label.unique()
 
 
 #sample_ids_leafcutter = sample_ids[:10]
-#sample_ids_leafcutter = sample_ids[:1000]
-sample_ids_leafcutter = sample_ids
+sample_ids_leafcutter = sample_ids[:1000]
+#sample_ids_leafcutter = sample_ids[:3000]
+#sample_ids_leafcutter = sample_ids
 
 
 slop_amount = 100
@@ -134,12 +137,22 @@ quantifications_gaba_subset = ["gene-expression", "kallisto", "bins", "exons", "
 
 rule all:
     input:
-        expand("output/filtered_bams/{sample_id}.bam.bai", sample_id=sample_ids),
+        #'output/diff_spl/null/splicing.clusters.tsv',
+        #"output/dimensionality_reduction/all/introns-shared-acceptor/vae_hyperopt/latent.txt",
+        #"output/comparison/shuffled/cell_type.pdf",
+        #expand("output/dimensionality_reduction/all/{quantification}/vae/latent.txt", quantification=["leafcutter", "introns-subset-lc", "introns-shared-acceptor", "introns-transitive-shuffled"]),
+        #"output/dimensionality_reduction/all/introns-shared-acceptor-shuffled/vae_frequency-smoothed_False/latent.txt",
+        #"output/dimensionality_reduction/all/introns-subset-lc-nonfiltered/vae/latent.txt",
+        #expand("output/plots/cluster_sizes/{quantification}.png", quantification=["introns-shared-acceptor", "introns-subset-lc"]),
+        #"output/quantification/leafcutter/leafviz.RData",
+        #expand("output/filtered_bams/{sample_id}.bam.bai", sample_id=sample_ids),
         #"output/quantification/introns-subset-lc/output/introns-transitive/adata.h5ad",
+        #"output/quantification/introns-subset-lc/adata_annotated.h5ad",
+        #"output/quantification/introns-subset-lc-nonfiltered/adata_annotated.h5ad",
         #"output/comparison/gaba_subset/batch.svg",
         #"output/comparison/exp_spl/cell_type.svg",
         #"output/quantification/leafcutter/adata_annotated.h5ad",
-        #'output/quantification/leafcutter/null_cdf.pdf',
+        'output/quantification/leafcutter/null_cdf.pdf',
         #"output/quantification/leafcutter/_cluster_significance.txt"
         #"output/quantification/introns-subset-lc/output/introns-transitive/adata.h5ad",
         #"output/quantification/leafcutter/_perind_numers.counts.gz",
@@ -346,48 +359,49 @@ rule add_metadata:
 #        "python -m scquint.quantification.run coverage_track/Snakefile --cores {threads} -d output/coverage_track/{wildcards.subclass}/ --config bam_paths=../../bam_paths_{wildcards.subclass}.txt chrom_sizes_path={chrom_sizes_path}"
 #
 #
-#rule differential_test_null:
-#    input:
-#        "output/quantification/gene-expression/adata_annotated.h5ad",
-#        "output/quantification/introns-transitive/adata_annotated.h5ad",
-#        #"output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-#    output:
-#        'output/diff_spl/null/expression.tsv',
-#        'output/diff_spl/null/splicing.clusters.tsv',
-#        'output/diff_spl/null/splicing.introns.tsv',
-#    threads: workflow.cores
-#    run:
-#        adata_exp = anndata.read_h5ad(input[0])
-#        adata_exp.obs.index = adata_exp.obs.index.astype(str)
-#        adata_spl = anndata.read_h5ad(input[1])
-#        adata_spl.obs.index = adata_spl.obs.index.astype(str)
-#        adata_spl.var.index = adata_spl.var.index.astype(str)
-#        assert((adata_exp.obs.index == adata_spl.obs.index).all())
-#        obs = adata_exp.obs
-#        print("threads: ", threads)
-#        np.random.seed(42)
-#        cell_idx = np.arange(len(obs))
-#        cell_idx_perm = np.random.permutation(cell_idx)
-#        cell_idx_a = cell_idx_perm[:len(cell_idx)//2]
-#        cell_idx_b = cell_idx_perm[len(cell_idx)//2:]
-#        #print("running on a subset")
-#        #cell_idx_a = cell_idx_a[:500]
-#        #cell_idx_b = cell_idx_b[:500]
-#        diff_exp = run_differential_expression(adata_exp, cell_idx_a, cell_idx_b, config["min_total_cells_per_gene"])
-#        print(diff_exp)
-#        diff_exp.to_csv(output[0], '\t', index=False)
-#        diff_spl_clusters, diff_spl_introns = run_differential_splicing(
-#            adata_spl,
-#            cell_idx_a,
-#            cell_idx_b,
-#            min_cells_per_cluster=config["min_cells_per_cluster"],
-#            min_total_cells_per_intron=config["min_total_cells_per_intron"],
-#            n_jobs=threads,
-#            do_recluster=True,
-#            #do_recluster=False,
-#        )
-#        diff_spl_clusters.to_csv(output[1], '\t')
-#        diff_spl_introns.to_csv(output[2], '\t')
+rule differential_test_null:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+        #"output/quantification/introns-subset-lc/adata_annotated.h5ad",
+        #"output/quantification/introns-transitive/adata_annotated.h5ad",
+        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+    output:
+        'output/diff_spl/null/expression.tsv',
+        'output/diff_spl/null/splicing.clusters.tsv',
+        'output/diff_spl/null/splicing.introns.tsv',
+    threads: workflow.cores
+    run:
+        adata_exp = anndata.read_h5ad(input[0])
+        adata_exp.obs.index = adata_exp.obs.index.astype(str)
+        adata_spl = anndata.read_h5ad(input[1])
+        adata_spl.obs.index = adata_spl.obs.index.astype(str)
+        adata_spl.var.index = adata_spl.var.index.astype(str)
+        assert((adata_exp.obs.index == adata_spl.obs.index).all())
+        obs = adata_exp.obs
+        print("threads: ", threads)
+        np.random.seed(42)
+        cell_idx = np.arange(len(obs))
+        cell_idx_perm = np.random.permutation(cell_idx)
+        cell_idx_a = cell_idx_perm[:len(cell_idx)//2]
+        cell_idx_b = cell_idx_perm[len(cell_idx)//2:]
+        #print("running on a subset")
+        #cell_idx_a = cell_idx_a[:500]
+        #cell_idx_b = cell_idx_b[:500]
+        diff_exp = run_differential_expression(adata_exp, cell_idx_a, cell_idx_b, config["min_total_cells_per_gene"])
+        print(diff_exp)
+        diff_exp.to_csv(output[0], '\t', index=False)
+        diff_spl_clusters, diff_spl_introns = run_differential_splicing(
+            adata_spl,
+            cell_idx_a,
+            cell_idx_b,
+            min_cells_per_cluster=config["min_cells_per_cluster"],
+            min_total_cells_per_intron=config["min_total_cells_per_intron"],
+            n_jobs=threads,
+            #do_recluster=True,
+            do_recluster=False,
+        )
+        diff_spl_clusters.to_csv(output[1], '\t')
+        diff_spl_introns.to_csv(output[2], '\t')
 #
 #
 #rule plot_dist_under_null:
@@ -668,15 +682,23 @@ rule add_metadata:
 rule compare_latent_exp_spl:
     input:
         "output/dimensionality_reduction/all/gene-expression/pca_20/latent.txt",
-        "output/dimensionality_reduction/all/introns-transitive/pca_20/latent.txt",
-        "output/dimensionality_reduction/all/leafcutter/pca_20/latent.txt",
+        #"output/dimensionality_reduction/all/introns-transitive/pca_20/latent.txt",
+        #"output/dimensionality_reduction/all/leafcutter/pca_20/latent.txt",
+        #"output/dimensionality_reduction/all/leafcutter/vae/latent.txt",
+        #"output/dimensionality_reduction/all/introns-subset-lc/pca_20/latent.txt",
+        #"output/dimensionality_reduction/all/introns-subset-lc-nonfiltered/pca_20/latent.txt",
+        #"output/dimensionality_reduction/all/introns-subset-lc/vae/latent.txt",
+        "output/dimensionality_reduction/all/introns-shared-acceptor/pca_20/latent.txt",
+        "output/dimensionality_reduction/all/introns-shared-acceptor/vae_hyperopt/latent.txt",
+        #"output/dimensionality_reduction/all/introns-subset-lc-nonfiltered/vae/latent.txt",
         #"output/dimensionality_reduction/splicing/PCA/latent.txt",
     output:
         "output/comparison/exp_spl/cell_type.svg",
     run:
         dfs = []
-        for name, input_path in zip(["Expression", "Splicing (ours)", "Splicing (LeafCutter)"], input):
-        #for name, input_path in zip(["Expression", "Splicing"], input):
+        #names = ["Expression", "LeafCutter-PCA", "LeafCutter-VAE", "LeafCutter-filt-PCA", "LeafCutter-filt-VAE", "Shared-acceptor-PCA", "Shared-acceptor-VAE"]
+        names = ["Expression", "Splicing-PCA", "Splicing-VAE"]
+        for name, input_path in zip(names, input):
             df = sample_info.copy()
             latent = np.loadtxt(input_path)
             #proj = UMAP(min_dist=1.0, n_neighbors=15, random_state=42).fit_transform(latent)
@@ -695,7 +717,9 @@ rule compare_latent_exp_spl:
             hue_order=cell_type_order,
             col="Quantification",
             #col_order=["Expression", "Splicing"],
-            col_order=["Expression", "Splicing (ours)", "Splicing (LeafCutter)"],
+            #col_order=["Expression", "Splicing (ours)", "Splicing (LeafCutter)", "Splicing (ours regtools)"],
+            #col_order=["Expression", "Splicing (LeafCutter)", "Splicing (ours)", "Splicing (ours no filter)"],
+            col_order=names,
             kind="scatter",
             facet_kws={'sharey': False, 'sharex': False},
             height=3,
@@ -742,47 +766,51 @@ rule compare_latent_exp_spl:
 #        adata.write(output[0], compression="gzip")
 ##
 ##
-#rule compare_latent_shuffled:
-#    input:
-#        "output/dimensionality_reduction/all/introns-transitive/pca_20/latent.txt",
-#        "output/dimensionality_reduction/all/introns-transitive-shuffled/pca_20/latent.txt",
-#    output:
-#        "output/comparison/shuffled/cell_type.pdf",
-#    run:
-#        dfs = []
-#        for name, input_path in zip(["Splicing", "Splicing (shuffled)"], input):
-#            df = sample_info.copy()
-#            latent = np.loadtxt(input_path)
-#            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
-#            df["UMAP 1"] = proj[:, 0]
-#            df["UMAP 2"] = proj[:, 1]
-#            df["Quantification"] = name
-#            dfs.append(df)
-#        df = pd.concat(dfs)
-#        df = df[df["Cell type"].isin(cell_type_order)]
-#        g = sns.relplot(
-#            data=df,
-#            x="UMAP 1",
-#            y="UMAP 2",
-#            hue="Cell type",
-#            hue_order=cell_type_order,
-#            col="Quantification",
-#            col_order=["Splicing", "Splicing (shuffled)"],
-#            kind="scatter",
-#            facet_kws={'sharey': False, 'sharex': False},
-#            height=3,
-#            palette="tab10",
-#            edgecolor="none",
-#            s=4,
-#        )
-#        g.set_titles(col_template="{col_name}")
-#        g.fig.subplots_adjust(wspace=0.1)
-#        for ax in g.axes.flat:
-#            ax.set_xticks([])
-#            ax.set_yticks([])
-#            ax.set_ylabel("UMAP 2")
-#        sns.despine()
-#        plt.savefig(output[0], bbox_inches='tight')
+rule compare_latent_shuffled:
+    input:
+        #"output/dimensionality_reduction/all/introns-transitive/pca_20/latent.txt",
+        #"output/dimensionality_reduction/all/introns-transitive/vae/latent.txt",
+        #"output/dimensionality_reduction/all/introns-transitive-shuffled/pca_20/latent.txt",
+        #"output/dimensionality_reduction/all/introns-transitive-shuffled/vae/latent.txt",
+        "output/dimensionality_reduction/all/introns-shared-acceptor-shuffled/vae_frequency-smoothed_False/latent.txt",
+    output:
+        "output/comparison/shuffled/cell_type.pdf",
+    run:
+        dfs = []
+        names = ["VAE"]
+        for name, input_path in zip(names, input):
+            df = sample_info.copy()
+            latent = np.loadtxt(input_path)
+            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
+            df["UMAP 1"] = proj[:, 0]
+            df["UMAP 2"] = proj[:, 1]
+            df["Quantification"] = name
+            dfs.append(df)
+        df = pd.concat(dfs)
+        df = df[df["Cell type"].isin(cell_type_order)]
+        g = sns.relplot(
+            data=df,
+            x="UMAP 1",
+            y="UMAP 2",
+            hue="Cell type",
+            hue_order=cell_type_order,
+            col="Quantification",
+            col_order=names,
+            kind="scatter",
+            facet_kws={'sharey': False, 'sharex': False},
+            height=3,
+            palette="tab10",
+            edgecolor="none",
+            s=4,
+        )
+        g.set_titles(col_template="{col_name}")
+        g.fig.subplots_adjust(wspace=0.1)
+        for ax in g.axes.flat:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_ylabel("UMAP 2")
+        sns.despine()
+        plt.savefig(output[0], bbox_inches='tight')
 #
 #
 #rule psi_plot:
@@ -1293,24 +1321,24 @@ rule compare_latent_exp_spl:
 #        adata.write(output[0], compression="gzip")
 #
 #
-rule dimensionality_reduction_gaba_subset_pca:
-    input:
-        "output/quantification/{quantification}/adata_annotated.h5ad",
-    output:
-        "output/dimensionality_reduction/gaba_subset/{quantification}/pca_{k}/latent.txt",
-    wildcard_constraints: quantification='.+(?<!gene-expression)'
-    run:
-        adata = anndata.read_h5ad(input[0])
-        adata = adata[(adata.obs.subclass_label.isin(cell_types_batch_effect))]
-        sorted_index = sorted(adata.obs.index)
-        adata = adata[sorted_index]
-        if wildcards["quantification"] != "bins-nmf":
-            adata = filter_min_cells_per_feature(adata, 100)
-        if wildcards["quantification"] == "introns-transitive" or wildcards["quantification"] == "introns-transitive-shuffled" or wildcards["quantification"] == "leafcutter":
-            adata = recluster(adata)
-        print(adata.shape)
-        latent = run_pca(adata, int(wildcards["k"]))
-        np.savetxt(output[0], latent)
+#rule dimensionality_reduction_gaba_subset_pca:
+#    input:
+#        "output/quantification/{quantification}/adata_annotated.h5ad",
+#    output:
+#        "output/dimensionality_reduction/gaba_subset/{quantification}/pca_{k}/latent.txt",
+#    wildcard_constraints: quantification='.+(?<!gene-expression)'
+#    run:
+#        adata = anndata.read_h5ad(input[0])
+#        adata = adata[(adata.obs.subclass_label.isin(cell_types_batch_effect))]
+#        sorted_index = sorted(adata.obs.index)
+#        adata = adata[sorted_index]
+#        if wildcards["quantification"] != "bins-nmf":
+#            adata = filter_min_cells_per_feature(adata, 100)
+#        if wildcards["quantification"] == "introns-transitive" or wildcards["quantification"] == "introns-transitive-shuffled" or wildcards["quantification"] == "leafcutter":
+#            adata = recluster(adata)
+#        print(adata.shape)
+#        latent = run_pca(adata, int(wildcards["k"]))
+#        np.savetxt(output[0], latent)
 #
 #
 #rule dimensionality_reduction_gaba_subset_expression:
@@ -1341,10 +1369,36 @@ rule dimensionality_reduction_all_pca:
         adata = anndata.read_h5ad(input[0])
         if wildcards["quantification"] != "bins-nmf":
             adata = filter_min_cells_per_feature(adata, 100)
-        if wildcards["quantification"] == "introns-transitive" or wildcards["quantification"] == "introns-transitive-shuffled" or wildcards["quantification"] == "leafcutter":
+        if wildcards["quantification"] == "introns-transitive" or wildcards["quantification"] == "introns-transitive-shuffled" or wildcards["quantification"] == "leafcutter" or wildcards["quantification"] == "introns-subset-lc" or wildcards["quantification"] == "introns-subset-lc-nonfiltered":
             adata = recluster(adata)
         print(wildcards["quantification"], adata.shape)
         latent = run_pca(adata, int(wildcards["k"]))
+        np.savetxt(output[0], latent)
+
+
+rule dimensionality_reduction_all_vae:
+    input:
+        "output/quantification/{quantification}/adata_annotated.h5ad",
+    output:
+        "output/dimensionality_reduction/all/{quantification}/vae_hyperopt/latent.txt",
+    wildcard_constraints: quantification='.+(?<!gene-expression)'
+    resources:
+        gpu=1
+    run:
+        adata = anndata.read_h5ad(input[0])
+        if wildcards["quantification"] != "bins-nmf":
+            adata = filter_min_cells_per_feature(adata, 100)
+        if np.isin(wildcards["quantification"], ["introns-transitive", "introns-transitive-shuffled", "leafcutter", "introns-subset-lc", "introns-subset-lc-nonfiltered"]):
+            adata = recluster(adata)
+        print(wildcards["quantification"], adata.shape)
+        feature_addition = group_normalize(adata.X.sum(axis=0), adata.var.cluster, smooth=False).A1.ravel()
+
+        latent, model = run_vae(
+            adata, n_epochs_kl_warmup=20, regularization_gaussian_std=26.8,
+            use_cuda=True, input_transform="frequency-smoothed",
+            feature_addition=feature_addition, sample=False,
+            dropout_rate=0.269, n_latent=18,
+        )
         np.savetxt(output[0], latent)
 #
 #
@@ -1567,7 +1621,6 @@ rule dimensionality_reduction_all_pca:
 #        "output/quantification/leafcutter/juncs/{sample_id}.junc"
 #    shell:
 #        """
-#        samtools index {input} &&
 #        regtools junctions extract -s0 -a 8 -m 50 -M 500000 {input} -o {output}
 #        """
 #
@@ -1592,7 +1645,7 @@ rule dimensionality_reduction_all_pca:
 #        ~/miniconda2/bin/python leafcutter/clustering/leafcutter_cluster_regtools.py --checkchrom -j {input} -m 50 -o output/quantification/leafcutter/ -l 500000
 #        """
 #
-#
+
 #rule leafcutter_make_adata:
 #    input:
 #        "output/quantification/leafcutter/_perind_numers.counts.gz",
@@ -1644,32 +1697,55 @@ rule dimensionality_reduction_all_pca:
 #        "output/quantification/leafcutter/_perind_numers.counts.gz",
 #        "output/quantification/leafcutter/groups_file.txt",
 #    output:
-#        "output/quantification/leafcutter/_cluster_significance.txt"
+#        "output/quantification/leafcutter/_cluster_significance.txt",
+#        "output/quantification/leafcutter/_effect_sizes.txt",
 #    threads:
 #        workflow.cores
 #    shell:
 #        "/usr/bin/time -v leafcutter/scripts/leafcutter_ds.R --num_threads {threads} --min_samples_per_intron 50 --min_samples_per_group 50 --min_coverage 1  --timeout 60 -o output/quantification/leafcutter/ {input[0]} {input[1]}"
 #
-
-rule index_bam:
-    input:
-        "output/filtered_bams/{sample_id}.bam",
-    output:
-        "output/filtered_bams/{sample_id}.bam.bai"
-    shell:
-        "samtools index {input}"
-
-
-rule make_bam_paths_subset_lc:
-    input:
-        expand("output/filtered_bams/{sample_id}.bam", sample_id=sample_ids_leafcutter)
-    output:
-        "output/bam_paths_subset_lc.txt",
-    run:
-        cwd = os.getcwd()
-        pd.DataFrame(dict(sample_id=sample_ids_leafcutter, bam_path=[f"{cwd}/output/filtered_bams/{sample_id}.bam" for sample_id in sample_ids_leafcutter])).to_csv(output[0], "\t", index=False, header=False)
-
-
+#
+#rule leafcutter_process_gtf:
+#    input:
+#        full_gtf_path,
+#    output:
+#        directory("output/quantification/leafcutter/annotation/"),
+#    shell:
+#        "mkdir -p {output} && leafcutter/leafviz/gtf2leafcutter.pl -o {output}/ {input}"
+#
+#
+#rule leafcutter_run_pca:
+#    input:
+#        "output/quantification/leafcutter/_perind_numers.counts.gz",
+#        "output/quantification/leafcutter/_cluster_significance.txt",
+#        "output/quantification/leafcutter/_effect_sizes.txt",
+#        "output/quantification/leafcutter/annotation/",
+#        "output/quantification/leafcutter/groups_file.txt",
+#    output:
+#        "output/quantification/leafcutter/leafviz.RData",
+#    shell:
+#        "leafcutter/leafviz/prepare_results.R {input[0]} {input[1]} {input[2]} {input[3]} -m {input[4]} -o {output}"
+#
+#
+#rule index_bam:
+#    input:
+#        "output/filtered_bams/{sample_id}.bam",
+#    output:
+#        "output/filtered_bams/{sample_id}.bam.bai"
+#    shell:
+#        "samtools index {input}"
+#
+#
+#rule make_bam_paths_subset_lc:
+#    input:
+#        expand("output/filtered_bams/{sample_id}.bam", sample_id=sample_ids_leafcutter)
+#    output:
+#        "output/bam_paths_subset_lc.txt",
+#    run:
+#        cwd = os.getcwd()
+#        pd.DataFrame(dict(sample_id=sample_ids_leafcutter, bam_path=[f"{cwd}/output/filtered_bams/{sample_id}.bam" for sample_id in sample_ids_leafcutter])).to_csv(output[0], "\t", index=False, header=False)
+#
+#
 rule intron_quantification_subset_lc:
     input:
         "output/bam_paths_subset_lc.txt",
@@ -1684,26 +1760,79 @@ rule intron_quantification_subset_lc:
         "python -m scquint.quantification.run introns/Snakefile --cores {threads} -q -d output/quantification/introns-subset-lc/ --config min_cells_per_intron=30 bam_paths=../../bam_paths_subset_lc.txt chromosomes_path=../../chromosomes.txt fasta_path={genome_fasta_path} gtf_path={full_gtf_path} chrom_sizes_path={chrom_sizes_path} sjdb_path={sjdb_path}"
 
 
-#rule plot_dist_under_null_comparison:
-#    input:
-#        "output/quantification/leafcutter/_cluster_significance.txt",
-#        'output/diff_spl/null/splicing.clusters.tsv',
-#    output:
-#        'output/quantification/leafcutter/null_cdf.pdf',
-#    run:
-#        df = pd.read_csv(input[0], "\t")
-#        df = df[df.status=="Success"]
-#        plt.plot([0, 1], [0, 1], color="gray", linestyle="--")
-#        ax = plt.gca()
-#        sns.ecdfplot(df.p, ax=ax, label="LeafCutter")
-#        df = pd.read_csv(input[1], "\t")
-#        sns.ecdfplot(df.p_value, ax=ax, label="Ours")
-#        plt.legend()
-#        plt.xlabel("p-value")
-#        plt.ylabel("cdf")
-#        plt.xlim([0, 1])
-#        plt.ylim([0, 1])
-#        plt.gca().set_aspect('equal', adjustable='box')
-#        plt.tight_layout()
-#        plt.draw()
-#        plt.savefig(output[0], bbox_inches='tight')
+rule plot_dist_under_null_comparison:
+    input:
+        "output/quantification/leafcutter/_cluster_significance.txt",
+        'output/diff_spl/null/splicing.clusters.tsv',
+    output:
+        'output/quantification/leafcutter/null_cdf.pdf',
+        'output/quantification/leafcutter/null_qq.pdf',
+    run:
+        df1 = pd.read_csv(input[0], "\t")
+        df1 = df1[df1.status=="Success"]
+        df2 = pd.read_csv(input[1], "\t")
+        print(df1.shape, df2.shape)
+
+        plt.plot([0, 1], [0, 1], color="gray", linestyle="--")
+        ax = plt.gca()
+        sns.ecdfplot(df1.p, ax=ax, label="LeafCutter")
+        sns.ecdfplot(df2.p_value, ax=ax, label="scQuint")
+        plt.legend()
+        plt.xlabel("p-value")
+        plt.ylabel("cdf")
+        plt.xlim([0, 1])
+        plt.ylim([0, 1])
+        plt.gca().set_aspect('equal', adjustable='box')
+        plt.tight_layout()
+        plt.draw()
+        plt.savefig(output[0], bbox_inches='tight')
+        plt.close()
+
+        np.random.seed(42)
+        uniform_p_values = np.random.uniform(size=1000000)
+        def get_quantiles(p_values):
+            scores = -np.log10(p_values)
+            quantiles = np.quantile(scores, q=np.linspace(0, 1, 1000)[1:-1])
+            return quantiles
+
+        quantiles_theoretical = get_quantiles(uniform_p_values)
+        quantiles_leafcutter = get_quantiles(df1.p.values)
+        quantiles_scquint = get_quantiles(df2.p_value.values)
+
+        min_val = 0.0
+        max_val = np.max(quantiles_theoretical)
+
+        plt.plot([0, max_val], [0, max_val], color="gray", linestyle="--")
+
+        plt.scatter(quantiles_theoretical, quantiles_leafcutter, label="LeafCutter")
+        plt.scatter(quantiles_theoretical, quantiles_scquint, label="scQuint")
+        plt.legend()
+        plt.xlabel(r"Theoretical $-\log_{10}\ p$ quantile")
+        plt.ylabel(r"Observed $-\log_{10}\ p$ quantile")
+        #plt.ylabel("cdf")
+        #plt.xlim([0, 1])
+        #plt.ylim([0, 1])
+        plt.gca().set_aspect('equal', adjustable='box')
+        plt.tight_layout()
+        plt.draw()
+        plt.savefig(output[1], bbox_inches='tight')
+        plt.close()
+
+
+rule hist_cluster_sizes:
+    input:
+        "output/quantification/{quantification}/adata_annotated.h5ad",
+    output:
+        "output/plots/cluster_sizes/{quantification}.png",
+    run:
+        adata = anndata.read_h5ad(input[0])
+        adata = filter_min_cells_per_feature(adata, 100)
+        if wildcards["quantification"] == "introns-transitive" or wildcards["quantification"] == "introns-transitive-shuffled" or wildcards["quantification"] == "leafcutter" or wildcards["quantification"] == "introns-subset-lc":
+            adata = recluster(adata)
+        cluster_sizes = adata.var.groupby("cluster").size()
+        print(cluster_sizes)
+        cluster_sizes = cluster_sizes.values
+        print(cluster_sizes)
+        sns.histplot(x=cluster_sizes, discrete=True)
+        plt.xlabel("Cluster size")
+        plt.savefig(output[0])
