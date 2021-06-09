@@ -3214,14 +3214,24 @@ rule plot_marker_introns_trajectory_marrow_b:
         #X = adata.X.toarray()
 
         all_marker_introns = []
+        i = 0
         for input_path in input[2:]:
             #marker_introns = pd.read_csv(input_path, "\t", header=None).values.astype(str).ravel().tolist()[:5]
-            marker_introns = pd.read_csv(input_path, "\t").head(5)
+            n_examples = [3, 3, 4, 5]
+            marker_introns = pd.read_csv(input_path, "\t").head(n_examples[i])
+            marker_introns["group"] = i
             all_marker_introns.append(marker_introns)
+            if i == 3:
+                marker_introns = pd.read_csv(input_path, "\t")
+                marker_introns = marker_introns[marker_introns.marker_intron=="chr6:99260420-99266347"]
+                marker_introns["group"] = i
+                all_marker_introns.append(marker_introns)
+            i += 1
         marker_introns = pd.concat(all_marker_introns, ignore_index=True)
-        print(len(marker_introns))
+        print(marker_introns.group.value_counts())
         marker_introns = marker_introns.drop_duplicates(["gene_id"])
-        print(len(marker_introns))
+        marker_introns = marker_introns.iloc[[0, 3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 11]]
+        print(marker_introns.group.value_counts())
 
         gene_ids = marker_introns.gene_id.values
         gene_names = marker_introns.gene_name.values
@@ -3252,10 +3262,11 @@ rule plot_marker_introns_trajectory_marrow_b:
         obs = adata_spl.obs
         #obs.loc[:, gene_names] = adata_exp.X
         obs.loc[:, introns] = adata_spl.X
+        obs.loc[:, gene_names] = adata_exp.X.toarray()
 
         obs["sample_id"] = obs.index.values
         obs["Cell type"] = obs.cell_ontology_class
-        obs = obs.melt(id_vars=["sample_id", "Cell type"], value_vars=introns, var_name="Intron", value_name="PSI")
+        obs_melt = obs.melt(id_vars=["sample_id", "Cell type"], value_vars=introns, var_name="Intron", value_name="PSI")
 
         #g = sns.FacetGrid(
         #    obs,
@@ -3276,18 +3287,24 @@ rule plot_marker_introns_trajectory_marrow_b:
         #    x="Cell type",
         #    y="PSI",
         #)
+        color_exp = "C9"
+        color_spl = "C4"
 
-        obs["foo"] = "foo"
+        obs_melt["foo"] = "foo"
         g = sns.catplot(
-            data=obs,
-            row="Intron",
-            row_order=introns,
-            palette="tab10",
+            data=obs_melt,
+            col="Intron",
+            col_order=introns,
+            col_wrap=4,
+            #row="Intron",
+            #row_order=introns,
+            palette=[color_spl],
             sharex=True,
             sharey=False,
-            height=2.0,
+            #height=2.0,
+            height=1.7,
             aspect=1.5,
-            margin_titles=True,
+            #margin_titles=True,
             kind="point",
             ci=None,
             #kind="box",
@@ -3297,20 +3314,27 @@ rule plot_marker_introns_trajectory_marrow_b:
             y="PSI",
             legend=False,
         )
-        for intron, ax in zip(introns, g.axes.flat):
+        g.fig.subplots_adjust(hspace=0.3, wspace=0.7)
+
+        i = 0
+        for idx, marker_intron in marker_introns.iterrows():
+            ax = g.axes.flat[i]
+            i += 1
             #ax.set_title(ax.get_title(), fontsize='xx-large')
             ax2 = ax.twinx()
-            ax2.plot(ax.get_xticks(), 10*np.random.rand(4))
-
-                    # This only works for the left ylabels
-                    #     ax.set_ylabel(ax.get_ylabel(), fontsize='xx-large')
+            mean_exp = obs.groupby("Cell type")[marker_intron.gene_name].mean().loc[new_cell_type_order].values
+            ax2.plot(ax.get_xticks(), mean_exp, color=color_exp, marker="o", linestyle="-", linewidth=3, markersize=8)
+            ax.yaxis.set_tick_params(labelsize=8)
+            ax2.yaxis.set_tick_params(labelsize=8)
+            ax.set_ylabel("Mean PSI", color=color_spl, labelpad=0.5)
+            ax2.set_ylabel("Mean expr.", color=color_exp, labelpad=0.5)
 
         g.set_titles(col_template="{col_name}", row_template="{row_name}")
         #g.set_ylabels("PSI")
         #g.set_xlabels("")
         #g.set(xticks=[])
         #g.set(xlim=(0, 1), ylim=(0, 1))
-        sns.despine(bottom=False, right=False)
+        sns.despine(bottom=True, right=False)
         #sns.despine()
         g.savefig(output[0], bbox_inches="tight")
         plt.close()
@@ -3365,6 +3389,7 @@ rule plot_marker_introns_trajectory_marrow_b:
             ci=None,
         )
 
+        g.fig.subplots_adjust(hspace=0.1)
         g.set_titles(col_template="{col_name}", row_template="{row_name}")
         #g.set_ylabels("PSI")
         #g.set_xlabels("")
