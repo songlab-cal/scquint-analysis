@@ -69,6 +69,8 @@ print("len(sample_ids): ", len(sample_ids))
 sample_info.loc[:, "cell_type"] = sample_info.cell_ontology_class.str.replace(" ", "_").str.replace("-", "_")
 sample_info["plate_id"] = sample_info.index.str.split("_").str[1]
 
+print(sample_info[sample_info.tissue=="Marrow"].cell_type.value_counts())
+
 #cwd = os.getcwd()
 #pd.DataFrame(dict(
 #    sample_id=sample_ids,
@@ -120,10 +122,14 @@ genes_bam_merge = {
 #        "region": ["chr6", 98888459, 99713014],
 #        "cell_types": ["late_pro_B_cell", "precursor_B_cell", "immature_B_cell", "naive_B_cell"],
 #    },
-    "Echdc2": {
-        "region": ["chr4", 108164887, 108179634],
-        "cell_types": ["hepatocyte_cluster_0", "hepatocyte_cluster_1"],
+    "Smarca4": {
+        "region": ["chr9", 21615842, 21633577],
+        "cell_types": ["late_pro_B_cell", "precursor_B_cell", "immature_B_cell", "naive_B_cell"],
     },
+#    "Echdc2": {
+#        "region": ["chr4", 108164887, 108179634],
+#        "cell_types": ["hepatocyte_cluster_0", "hepatocyte_cluster_1"],
+#    },
 }
 
 
@@ -190,6 +196,8 @@ cell_type_order = ["(1) pro-B", "(2) pre-B", "(3) immature B", "(4) naive B"]
 
 rule all:
     input:
+#        expand("output/bam_regions/Smarca4/{cell_type}/merged.bam", cell_type=genes_bam_merge["Smarca4"]["cell_types"]),
+        #"output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.tsv",
         #"output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.tsv",
         #"output/differential_splicing/marrow_b/marker_introns_trajectory_spl.svg",
         #expand('output/differential_splicing/marrow_b/{cell_type}/marker_introns.tsv', cell_type=cell_type_order),
@@ -211,7 +219,8 @@ rule all:
         #'output/differential_splicing/new_clusters/Liver/hepatocyte/splicing.clusters.significant.tsv',
         #'output/differential_splicing/new_clusters/Liver/hepatocyte/splicing.clusters.significant.tsv',
         #'output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns_dist.svg',
-        'output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg',
+        #'output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg',
+        #'output/differential_splicing/new_clusters/Liver/hepatocyte/libsize.svg',
         #'output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.svg',
         #"output/comparison/Liver-hepatocyte/",
         #"output/comparison/Heart-monocyte/",
@@ -1002,82 +1011,82 @@ rule all:
 #        res.to_csv(output[0], "\t")
 #
 #
-rule filter_diff_spl_significant:
-    input:
-        'output/{anything}/expression.tsv',
-        'output/{anything}/splicing.clusters.tsv',
-        'output/{anything}/splicing.introns.tsv',
-        "output/gene_cds.txt",
-        "output/gene_name.txt",
-    output:
-        'output/{anything}/splicing.clusters.significant.tsv',
-    run:
-        diff_exp = pd.read_csv(input[0], "\t", index_col=0)
-        diff_spl_cluster = pd.read_csv(input[1], "\t", index_col=0)
-        diff_spl_intron = pd.read_csv(input[2], "\t", index_col=0)
-        gene_cds = pd.read_csv(input[3], "\t", index_col=0)
-        gene_name = pd.read_csv(input[4], "\t", index_col=0)
-
-        assert(set(diff_spl_cluster.index.values) == set(diff_spl_intron.cluster.unique()))
-
-        print(diff_spl_cluster.shape)
-        diff_spl_cluster = diff_spl_cluster[
-            ((diff_spl_cluster.p_value_adj <= config["fdr"]) &
-             (diff_spl_cluster.max_abs_delta_psi >= config["min_abs_delta_psi"]))
-        ]
-        print(diff_spl_cluster.shape)
-        diff_spl_cluster = diff_spl_cluster.merge(gene_name, how="left", left_on="gene_id", right_index=True)
-        print(diff_spl_cluster.shape)
-        def max_abs_lfc_psi_unannotated(row_cluster):
-            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
-            return (introns.abs_lfc_psi * (~introns.annotated).astype(int)).max()
-        diff_spl_cluster["max_abs_lfc_psi_unannotated"] = diff_spl_cluster.apply(max_abs_lfc_psi_unannotated, axis=1)
-        def max_abs_delta_psi_unannotated(row_cluster):
-            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
-            return (introns.abs_delta_psi * (~introns.annotated).astype(int)).max()
-        diff_spl_cluster["max_abs_delta_psi_unannotated"] = diff_spl_cluster.apply(max_abs_delta_psi_unannotated, axis=1)
-        diff_spl_cluster["Annotated"] = diff_spl_cluster.max_abs_delta_psi_unannotated < config["min_abs_delta_psi"]
-
-        #coordinates = diff_spl_intron.groupby("cluster").agg({"chromosome": "first", "start": "unique", "end": "unique"})
-        #diff_spl_cluster = diff_spl_cluster.merge(coordinates, how="left", left_index=True, right_index=True)
-
-        print(diff_spl_cluster.Annotated.value_counts())
-        def get_diff_exp_rank(row_cluster):
-            try:
-                return diff_exp.loc[row_cluster.gene_id].ranking
-            except KeyError:
-                return np.nan
-        diff_spl_cluster["diff_exp_rank"] = diff_spl_cluster.apply(get_diff_exp_rank, axis=1)
-        def check_region(row_cluster):
-            try:
-                cds = gene_cds.loc[row_cluster.gene_id]
-            except KeyError:
-                return "Non-coding"
-            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
-            cluster_start = introns.start.min()
-            cluster_end = introns.end.max()
-            if cds.strand == "+":
-                if cluster_start < cds.start:
-                    return "5' UTR"
-                if cluster_start < cds.end:
-                    return "CDS"
-                return "3' UTR"
-            elif cds.strand == "-":
-                if cluster_start < cds.start:
-                    return "3' UTR"
-                if cluster_start < cds.end:
-                    return "CDS"
-                return "5' UTR"
-            else:
-                raise Exception("strand not implemented")
-        diff_spl_cluster["Region"] = diff_spl_cluster.apply(check_region, axis=1)
-        diff_spl_cluster.max_abs_delta_psi = diff_spl_cluster.max_abs_delta_psi.round(decimals=3)
-
-        diff_spl_cluster.to_csv(
-            output[0], "\t",
-            #columns=["gene_id", "gene_name", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "p_value", "chromosome", "start", "end"],
-            columns=["gene_id", "gene_name", "p_value", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank"],
-        )
+#rule filter_diff_spl_significant:
+#    input:
+#        'output/{anything}/expression.tsv',
+#        'output/{anything}/splicing.clusters.tsv',
+#        'output/{anything}/splicing.introns.tsv',
+#        "output/gene_cds.txt",
+#        "output/gene_name.txt",
+#    output:
+#        'output/{anything}/splicing.clusters.significant.tsv',
+#    run:
+#        diff_exp = pd.read_csv(input[0], "\t", index_col=0)
+#        diff_spl_cluster = pd.read_csv(input[1], "\t", index_col=0)
+#        diff_spl_intron = pd.read_csv(input[2], "\t", index_col=0)
+#        gene_cds = pd.read_csv(input[3], "\t", index_col=0)
+#        gene_name = pd.read_csv(input[4], "\t", index_col=0)
+#
+#        assert(set(diff_spl_cluster.index.values) == set(diff_spl_intron.cluster.unique()))
+#
+#        print(diff_spl_cluster.shape)
+#        diff_spl_cluster = diff_spl_cluster[
+#            ((diff_spl_cluster.p_value_adj <= config["fdr"]) &
+#             (diff_spl_cluster.max_abs_delta_psi >= config["min_abs_delta_psi"]))
+#        ]
+#        print(diff_spl_cluster.shape)
+#        diff_spl_cluster = diff_spl_cluster.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+#        print(diff_spl_cluster.shape)
+#        def max_abs_lfc_psi_unannotated(row_cluster):
+#            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
+#            return (introns.abs_lfc_psi * (~introns.annotated).astype(int)).max()
+#        diff_spl_cluster["max_abs_lfc_psi_unannotated"] = diff_spl_cluster.apply(max_abs_lfc_psi_unannotated, axis=1)
+#        def max_abs_delta_psi_unannotated(row_cluster):
+#            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
+#            return (introns.abs_delta_psi * (~introns.annotated).astype(int)).max()
+#        diff_spl_cluster["max_abs_delta_psi_unannotated"] = diff_spl_cluster.apply(max_abs_delta_psi_unannotated, axis=1)
+#        diff_spl_cluster["Annotated"] = diff_spl_cluster.max_abs_delta_psi_unannotated < config["min_abs_delta_psi"]
+#
+#        #coordinates = diff_spl_intron.groupby("cluster").agg({"chromosome": "first", "start": "unique", "end": "unique"})
+#        #diff_spl_cluster = diff_spl_cluster.merge(coordinates, how="left", left_index=True, right_index=True)
+#
+#        print(diff_spl_cluster.Annotated.value_counts())
+#        def get_diff_exp_rank(row_cluster):
+#            try:
+#                return diff_exp.loc[row_cluster.gene_id].ranking
+#            except KeyError:
+#                return np.nan
+#        diff_spl_cluster["diff_exp_rank"] = diff_spl_cluster.apply(get_diff_exp_rank, axis=1)
+#        def check_region(row_cluster):
+#            try:
+#                cds = gene_cds.loc[row_cluster.gene_id]
+#            except KeyError:
+#                return "Non-coding"
+#            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
+#            cluster_start = introns.start.min()
+#            cluster_end = introns.end.max()
+#            if cds.strand == "+":
+#                if cluster_start < cds.start:
+#                    return "5' UTR"
+#                if cluster_start < cds.end:
+#                    return "CDS"
+#                return "3' UTR"
+#            elif cds.strand == "-":
+#                if cluster_start < cds.start:
+#                    return "3' UTR"
+#                if cluster_start < cds.end:
+#                    return "CDS"
+#                return "5' UTR"
+#            else:
+#                raise Exception("strand not implemented")
+#        diff_spl_cluster["Region"] = diff_spl_cluster.apply(check_region, axis=1)
+#        diff_spl_cluster.max_abs_delta_psi = diff_spl_cluster.max_abs_delta_psi.round(decimals=3)
+#
+#        diff_spl_cluster.to_csv(
+#            output[0], "\t",
+#            #columns=["gene_id", "gene_name", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "p_value", "chromosome", "start", "end"],
+#            columns=["gene_id", "gene_name", "p_value", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank"],
+#        )
 #
 #
 #rule merge_significant:
@@ -1528,24 +1537,24 @@ rule filter_diff_spl_significant:
 #        plt.tight_layout()
 #        plt.savefig(output[0], bbox_inches="tight")
 #
-
-rule get_marker_introns:
-    input:
-        'output/{anything}/splicing.clusters.significant.tsv',
-        'output/{anything}/splicing.introns.tsv',
-    output:
-        'output/{anything}/marker_introns.tsv',
-    run:
-        groups = pd.read_csv(input[0], "\t")
-        introns = pd.read_csv(input[1], "\t")
-        introns["id"] = introns.chromosome.astype(str) + ":" + introns.start.astype(str) + "-" + introns.end.astype(str)
-        introns = introns.set_index("id")
-        groups = groups.sort_values("max_abs_delta_psi", ascending=False).head(30)
-        #groups = groups[(groups.p_value_adj < config["fdr"]) & (groups.max_abs_delta_psi >= config["min_abs_delta_psi"])].sort_values("p_value", ascending=True).head(30)
-        print(groups.p_value_adj)
-        print(groups.max_abs_delta_psi)
-        groups["marker_intron"] = groups.cluster.apply(lambda x: introns[introns.cluster==x].delta_psi.idxmax())
-        groups.to_csv(output[0], "\t")
+#
+#rule get_marker_introns:
+#    input:
+#        'output/{anything}/splicing.clusters.significant.tsv',
+#        'output/{anything}/splicing.introns.tsv',
+#    output:
+#        'output/{anything}/marker_introns.tsv',
+#    run:
+#        groups = pd.read_csv(input[0], "\t")
+#        introns = pd.read_csv(input[1], "\t")
+#        introns["id"] = introns.chromosome.astype(str) + ":" + introns.start.astype(str) + "-" + introns.end.astype(str)
+#        introns = introns.set_index("id")
+#        groups = groups.sort_values("max_abs_delta_psi", ascending=False).head(30)
+#        #groups = groups[(groups.p_value_adj < config["fdr"]) & (groups.max_abs_delta_psi >= config["min_abs_delta_psi"])].sort_values("p_value", ascending=True).head(30)
+#        print(groups.p_value_adj)
+#        print(groups.max_abs_delta_psi)
+#        groups["marker_intron"] = groups.cluster.apply(lambda x: introns[introns.cluster==x].delta_psi.idxmax())
+#        groups.to_csv(output[0], "\t")
 #
 #
 #rule plot_marker_introns:
@@ -2939,206 +2948,234 @@ methods_compare_latent_all = ["gene-expression/pca_40", "introns-shared-acceptor
 #                ax.set_ylabel("UMAP 2")
 #            sns.despine()
 #            plt.savefig(output[i], bbox_inches='tight')
-
-
-rule plot_marker_introns_hepatocyte_clusters:
-    input:
-        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-        "output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.tsv",
-    output:
-        "output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.svg",
-    run:
-        adata_spl = anndata.read_h5ad(input[0])
-        adata_spl.var["id"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
-        adata_spl.var = adata_spl.var.set_index("id")
-
-        new_clusters = pd.read_csv("output/comparison/Liver-hepatocyte/clusters_spl.tsv", "\t", index_col=0)
-        adata_spl.obs = adata_spl.obs.merge(new_clusters, how="left", left_index=True, right_index=True)
-        print(adata_spl.shape)
-        adata_spl = adata_spl[~adata_spl.obs.cluster_spl.isna()]
-        adata_spl.obs.cluster_spl = adata_spl.obs.cluster_spl.astype(int).astype(str)
-        print(adata_spl.shape)
-
-        all_marker_introns = pd.read_csv(input[1], "\t", header=None).values.astype(str).ravel().tolist()[:20]
-
-        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
-        adata_spl = adata_spl[:, all_marker_introns]
-
-        gene_name = pd.read_csv("output/gene_name.txt", "\t", index_col=0)
-        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
-        adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.index
-        adata_spl.var = adata_spl.var.set_index("id")
-
-        g = sc.pl.matrixplot(
-            adata_spl,
-            adata_spl.var.index.values,
-            groupby='cluster_spl',
-            #categories_order=tissue_cell_types,
-            return_fig=True, vmin=0.0, vmax=1.0, cmap='coolwarm', swap_axes=True, colorbar_title="Mean PSI")
-        plt.tight_layout()
-        g.savefig(output[0], bbox_inches="tight")
-
-
-rule plot_marker_introns_dist_hepatocyte_clusters:
-    input:
-        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-        "output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.tsv",
-    output:
-        "output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns_dist.svg",
-    run:
-        adata_spl = anndata.read_h5ad(input[0])
-        adata_spl.var["prev_id"] = adata_spl.var.index.values
-        adata_spl.var["id"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
-        adata_spl.var = adata_spl.var.set_index("id")
-
-        new_clusters = pd.read_csv("output/comparison/Liver-hepatocyte/clusters_spl.tsv", "\t", index_col=0)
-        adata_spl.obs = adata_spl.obs.merge(new_clusters, how="left", left_index=True, right_index=True)
-        print(adata_spl.shape)
-        adata_spl = adata_spl[~adata_spl.obs.cluster_spl.isna()]
-        adata_spl.obs["Cluster"] = adata_spl.obs.cluster_spl.astype(int).astype(str)
-        print(adata_spl.shape)
-
-        all_marker_introns = pd.read_csv(input[1], "\t").head(10)
-        all_marker_introns = all_marker_introns.marker_intron.values
-
-        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
-        adata_spl = adata_spl[:, all_marker_introns]
-
-        gene_name = pd.read_csv("output/gene_name.txt", "\t", index_col=0)
-        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
-        #adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.index
-        adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
-        adata_spl.var = adata_spl.var.set_index("id")
-
-        marker_introns = adata_spl.var.index.values
-        print("len(marker_introns): ", len(marker_introns))
-
-        obs = adata_spl.obs
-        obs.loc[:, marker_introns] = adata_spl.X
-        obs["sample_id"] = obs.index.values
-        obs = obs.melt(id_vars=["sample_id", "Cluster"], value_vars=marker_introns, var_name="Intron", value_name="PSI")
-
-        g = sns.FacetGrid(
-            obs,
-            col="Cluster",
-            hue="Cluster",
-            row="Intron",
-            palette="tab10",
-            sharex=False,
-            sharey=True,
-            height=1.5,
-            aspect=1,
-            margin_titles=True,
-        )
-        eps = 1e-4
-        #n_bins = 10
-        n_bins = 5
-        g.map_dataframe(
-            sns.histplot,
-            y="PSI",
-            bins=np.linspace(0-eps, 1+eps, n_bins+1),
-            stat="probability",
-        )
-        g = g.map(lambda y, **kw: plt.axhline(y.mean(), color=kw["color"], ls="--"), 'PSI')
-
-        g.fig.subplots_adjust(wspace=0.1, hspace=0.12)
-        g.set_titles(col_template="Cluster {col_name}", row_template="{row_name}")
-        g.set_ylabels("PSI")
-        g.set_xlabels("")
-        g.set(xticks=[])
-        g.set(xlim=(0, 1), ylim=(0, 1))
-        #sns.despine(bottom=True)
-        sns.despine()
-        g.savefig(output[0], bbox_inches="tight")
-
-
-rule plot_marker_genes_hepatocyte_clusters:
-    input:
-        "output/quantification/gene-expression/adata_annotated.h5ad",
-        "output/differential_splicing/new_clusters/Liver/hepatocyte/expression.tsv",
-        "output/gene_name.txt",
-    output:
-        "output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg",
-    run:
-        adata = anndata.read_h5ad(input[0])
-
-        new_clusters = pd.read_csv("output/comparison/Liver-hepatocyte/clusters_spl.tsv", "\t", index_col=0)
-        adata.obs = adata.obs.merge(new_clusters, how="left", left_index=True, right_index=True)
-        print(adata.shape)
-        adata = adata[~adata.obs.cluster_spl.isna()]
-        #adata.obs["Cluster"] = "Cluster " + adata.obs.cluster_spl.astype(int).astype(str)
-        adata.obs["Cluster"] = adata.obs.cluster_spl.astype(int).astype(str)
-        print(adata.shape)
-
-        marker_gene_ids = pd.read_csv(input[1], "\t").head(10).gene.values
-        gene_name = pd.read_csv(input[2], "\t", index_col=0)
-        marker_gene_names = gene_name.loc[marker_gene_ids].values.ravel()
-        print(marker_gene_ids, marker_gene_names)
-        adata.var = adata.var.merge(gene_name, how="left", left_index=True, right_index=True)
-        print(adata.var)
-
-        sc.pp.normalize_total(adata, target_sum=1e4)
-        sc.pp.log1p(adata)
-
-        adata = adata[:, marker_gene_ids]
-        adata.var = adata.var.set_index("gene_name")
-
-        #g = sc.pl.stacked_violin(
-        #    adata, marker_gene_names, groupby='Cluster', swap_axes=True,
-        #    return_fig=True, row_palette="tab10",
-        #)
-        #plt.tight_layout()
-        #g.savefig(output[0], bbox_inches="tight")
-
-        obs = adata.obs
-        obs.loc[:, marker_gene_names] = adata.X.toarray()
-
-        for gene_name in marker_gene_names:
-            print(gene_name)
-            sorted_obs = obs[gene_name].sort_values()
-            print(sorted_obs.head())
-            print(sorted_obs.tail())
-            obs.loc[sorted_obs.head(5).index.values, gene_name] = np.nan
-            obs.loc[sorted_obs.tail(5).index.values, gene_name] = np.nan
-            sorted_obs = obs[gene_name].sort_values()
-            print(sorted_obs.head())
-            print(sorted_obs.tail())
-
-        #raise Exception("debug")
-        obs["sample_id"] = obs.index.values
-        obs = obs.melt(id_vars=["sample_id", "Cluster"], value_vars=marker_gene_names, var_name="Gene", value_name="Expr.")
-        print(obs)
-
-        g = sns.catplot(
-            data=obs,
-            x="Cluster",
-            hue="Cluster",
-            y="Expr.",
-            row="Gene",
-            palette="tab10",
-            sharex=True,
-            sharey=False,
-            height=1.5,
-            aspect=1.5,
-            margin_titles=True,
-            kind="violin",
-            cut=0,
-            scale="area",
-#                scale="width",
-#                width=0.75,
-        )
-
-        g.fig.subplots_adjust(wspace=0.1, hspace=0.12)
-        g.set_titles(row_template="{row_name}")
-        #plt.xticks(rotation=45)
-        #plt.xlabel("")
-        #g.set_ylabels("PSI")
-        #g.set_xlabels("")
-        #g.set(xticks=[])
-        #g.set(xlim=(0, 1), ylim=(0, 1))
-        #sns.despine(bottom=True)
-        sns.despine()
-        g.savefig(output[0], bbox_inches="tight")
+#
+#
+#rule plot_marker_introns_hepatocyte_clusters:
+#    input:
+#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+#        "output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.tsv",
+#    output:
+#        "output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.svg",
+#    run:
+#        adata_spl = anndata.read_h5ad(input[0])
+#        adata_spl.var["id"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
+#        adata_spl.var = adata_spl.var.set_index("id")
+#
+#        new_clusters = pd.read_csv("output/comparison/Liver-hepatocyte/clusters_spl.tsv", "\t", index_col=0)
+#        adata_spl.obs = adata_spl.obs.merge(new_clusters, how="left", left_index=True, right_index=True)
+#        print(adata_spl.shape)
+#        adata_spl = adata_spl[~adata_spl.obs.cluster_spl.isna()]
+#        adata_spl.obs.cluster_spl = adata_spl.obs.cluster_spl.astype(int).astype(str)
+#        print(adata_spl.shape)
+#
+#        all_marker_introns = pd.read_csv(input[1], "\t", header=None).values.astype(str).ravel().tolist()[:20]
+#
+#        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
+#        adata_spl = adata_spl[:, all_marker_introns]
+#
+#        gene_name = pd.read_csv("output/gene_name.txt", "\t", index_col=0)
+#        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+#        adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.index
+#        adata_spl.var = adata_spl.var.set_index("id")
+#
+#        g = sc.pl.matrixplot(
+#            adata_spl,
+#            adata_spl.var.index.values,
+#            groupby='cluster_spl',
+#            #categories_order=tissue_cell_types,
+#            return_fig=True, vmin=0.0, vmax=1.0, cmap='coolwarm', swap_axes=True, colorbar_title="Mean PSI")
+#        plt.tight_layout()
+#        g.savefig(output[0], bbox_inches="tight")
+#
+#
+#rule plot_marker_introns_dist_hepatocyte_clusters:
+#    input:
+#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+#        "output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.tsv",
+#    output:
+#        "output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns_dist.svg",
+#    run:
+#        adata_spl = anndata.read_h5ad(input[0])
+#        adata_spl.var["prev_id"] = adata_spl.var.index.values
+#        adata_spl.var["id"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
+#        adata_spl.var = adata_spl.var.set_index("id")
+#
+#        new_clusters = pd.read_csv("output/comparison/Liver-hepatocyte/clusters_spl.tsv", "\t", index_col=0)
+#        adata_spl.obs = adata_spl.obs.merge(new_clusters, how="left", left_index=True, right_index=True)
+#        print(adata_spl.shape)
+#        adata_spl = adata_spl[~adata_spl.obs.cluster_spl.isna()]
+#        adata_spl.obs["Cluster"] = adata_spl.obs.cluster_spl.astype(int).astype(str)
+#        print(adata_spl.shape)
+#
+#        all_marker_introns = pd.read_csv(input[1], "\t").head(10)
+#        all_marker_introns = all_marker_introns.marker_intron.values
+#
+#        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
+#        adata_spl = adata_spl[:, all_marker_introns]
+#
+#        gene_name = pd.read_csv("output/gene_name.txt", "\t", index_col=0)
+#        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+#        #adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.index
+#        adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
+#        adata_spl.var = adata_spl.var.set_index("id")
+#
+#        marker_introns = adata_spl.var.index.values
+#        print("len(marker_introns): ", len(marker_introns))
+#
+#        obs = adata_spl.obs
+#        obs.loc[:, marker_introns] = adata_spl.X
+#        obs["sample_id"] = obs.index.values
+#        obs = obs.melt(id_vars=["sample_id", "Cluster"], value_vars=marker_introns, var_name="Intron", value_name="PSI")
+#
+#        g = sns.FacetGrid(
+#            obs,
+#            col="Cluster",
+#            hue="Cluster",
+#            row="Intron",
+#            palette="tab10",
+#            sharex=False,
+#            sharey=True,
+#            height=1.5,
+#            aspect=1,
+#            margin_titles=True,
+#        )
+#        eps = 1e-4
+#        #n_bins = 10
+#        n_bins = 5
+#        g.map_dataframe(
+#            sns.histplot,
+#            y="PSI",
+#            bins=np.linspace(0-eps, 1+eps, n_bins+1),
+#            stat="probability",
+#        )
+#        g = g.map(lambda y, **kw: plt.axhline(y.mean(), color=kw["color"], ls="--"), 'PSI')
+#
+#        g.fig.subplots_adjust(wspace=0.1, hspace=0.12)
+#        g.set_titles(col_template="Cluster {col_name}", row_template="{row_name}")
+#        g.set_ylabels("PSI")
+#        g.set_xlabels("")
+#        g.set(xticks=[])
+#        g.set(xlim=(0, 1), ylim=(0, 1))
+#        #sns.despine(bottom=True)
+#        sns.despine()
+#        g.savefig(output[0], bbox_inches="tight")
+#
+#
+#rule plot_marker_genes_hepatocyte_clusters:
+#    input:
+#        "output/quantification/gene-expression/adata_annotated.h5ad",
+#        "output/differential_splicing/new_clusters/Liver/hepatocyte/expression.tsv",
+#        "output/gene_name.txt",
+#    output:
+#        "output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg",
+#    run:
+#        adata = anndata.read_h5ad(input[0])
+#
+#        new_clusters = pd.read_csv("output/comparison/Liver-hepatocyte/clusters_spl.tsv", "\t", index_col=0)
+#        adata.obs = adata.obs.merge(new_clusters, how="left", left_index=True, right_index=True)
+#        print(adata.shape)
+#        adata = adata[~adata.obs.cluster_spl.isna()]
+#        #adata.obs["Cluster"] = "Cluster " + adata.obs.cluster_spl.astype(int).astype(str)
+#        adata.obs["Cluster"] = adata.obs.cluster_spl.astype(int).astype(str)
+#        print(adata.shape)
+#
+#        marker_gene_ids = pd.read_csv(input[1], "\t").head(10).gene.values
+#        gene_name = pd.read_csv(input[2], "\t", index_col=0)
+#        marker_gene_names = gene_name.loc[marker_gene_ids].values.ravel()
+#        print(marker_gene_ids, marker_gene_names)
+#        adata.var = adata.var.merge(gene_name, how="left", left_index=True, right_index=True)
+#        print(adata.var)
+#
+#        sc.pp.normalize_total(adata, target_sum=1e4)
+#        sc.pp.log1p(adata)
+#
+#        adata = adata[:, marker_gene_ids]
+#        adata.var = adata.var.set_index("gene_name")
+#
+#        #g = sc.pl.stacked_violin(
+#        #    adata, marker_gene_names, groupby='Cluster', swap_axes=True,
+#        #    return_fig=True, row_palette="tab10",
+#        #)
+#        #plt.tight_layout()
+#        #g.savefig(output[0], bbox_inches="tight")
+#
+#        obs = adata.obs
+#        obs.loc[:, marker_gene_names] = adata.X.toarray()
+#
+#        for gene_name in marker_gene_names:
+#            print(gene_name)
+#            sorted_obs = obs[gene_name].sort_values()
+#            print(sorted_obs.head())
+#            print(sorted_obs.tail())
+#            obs.loc[sorted_obs.head(5).index.values, gene_name] = np.nan
+#            obs.loc[sorted_obs.tail(5).index.values, gene_name] = np.nan
+#            sorted_obs = obs[gene_name].sort_values()
+#            print(sorted_obs.head())
+#            print(sorted_obs.tail())
+#
+#        #raise Exception("debug")
+#        obs["sample_id"] = obs.index.values
+#        obs = obs.melt(id_vars=["sample_id", "Cluster"], value_vars=marker_gene_names, var_name="Gene", value_name="Expr.")
+#        print(obs)
+#
+#        g = sns.catplot(
+#            data=obs,
+#            x="Cluster",
+#            hue="Cluster",
+#            y="Expr.",
+#            row="Gene",
+#            palette="tab10",
+#            sharex=True,
+#            sharey=False,
+#            height=1.5,
+#            aspect=1.5,
+#            margin_titles=True,
+#            kind="violin",
+#            cut=0,
+#            scale="area",
+##                scale="width",
+##                width=0.75,
+#        )
+#
+#        g.fig.subplots_adjust(wspace=0.1, hspace=0.12)
+#        g.set_titles(row_template="{row_name}")
+#        #plt.xticks(rotation=45)
+#        #plt.xlabel("")
+#        #g.set_ylabels("PSI")
+#        #g.set_xlabels("")
+#        #g.set(xticks=[])
+#        #g.set(xlim=(0, 1), ylim=(0, 1))
+#        #sns.despine(bottom=True)
+#        sns.despine()
+#        g.savefig(output[0], bbox_inches="tight")
+#
+#
+#rule plot_libsize_hepatocyte_clusters:
+#    input:
+#        "output/quantification/gene-expression/adata_annotated.h5ad",
+#    output:
+#        "output/differential_splicing/new_clusters/Liver/hepatocyte/libsize.svg",
+#    run:
+#        adata = anndata.read_h5ad(input[0])
+#
+#        new_clusters = pd.read_csv("output/comparison/Liver-hepatocyte/clusters_spl.tsv", "\t", index_col=0)
+#        adata.obs = adata.obs.merge(new_clusters, how="left", left_index=True, right_index=True)
+#        print(adata.shape)
+#        adata = adata[~adata.obs.cluster_spl.isna()]
+#        #adata.obs["Cluster"] = "Cluster " + adata.obs.cluster_spl.astype(int).astype(str)
+#        adata.obs["Cluster"] = adata.obs.cluster_spl.astype(int).astype(str)
+#        print(adata.shape)
+#
+#        adata.obs["libsize"] = adata.X.sum(axis=1).A1.ravel()
+#
+#        ax = sns.violinplot(
+#            x="Cluster", y="libsize", data=adata.obs, palette="tab10",
+#            cut=0,
+#        )
+#
+#        sns.despine()
+#        plt.savefig(output[0], bbox_inches="tight")
+#
 
 #rule differential_test_marrow_b:
 #    input:
