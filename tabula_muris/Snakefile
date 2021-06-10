@@ -190,7 +190,8 @@ cell_type_order = ["(1) pro-B", "(2) pre-B", "(3) immature B", "(4) naive B"]
 
 rule all:
     input:
-        "output/differential_splicing/marrow_b/marker_introns_trajectory_spl.svg",
+        #"output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.tsv",
+        #"output/differential_splicing/marrow_b/marker_introns_trajectory_spl.svg",
         #expand('output/differential_splicing/marrow_b/{cell_type}/marker_introns.tsv', cell_type=cell_type_order),
         #expand("output/bam_regions/Echdc2/{cell_type}/merged.bam", cell_type=genes_bam_merge["Echdc2"]["cell_types"]),
         #"output/plots/hepatocyte_new_clusters/",
@@ -210,6 +211,7 @@ rule all:
         #'output/differential_splicing/new_clusters/Liver/hepatocyte/splicing.clusters.significant.tsv',
         #'output/differential_splicing/new_clusters/Liver/hepatocyte/splicing.clusters.significant.tsv',
         #'output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns_dist.svg',
+        'output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg',
         #'output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.svg',
         #"output/comparison/Liver-hepatocyte/",
         #"output/comparison/Heart-monocyte/",
@@ -2548,7 +2550,7 @@ methods_compare_latent_all = ["gene-expression/pca_40", "introns-shared-acceptor
 #    input:
 #        "output/quantification/gene-expression/adata_annotated.h5ad",
 #        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-#        "output/comparison/{tissue}-{cell_type}/clusters.tsv",
+#        "output/comparison/{tissue}-{cell_type}/clusters_spl.tsv",
 #    output:
 #        'output/differential_splicing/new_clusters/{tissue}/{cell_type}/expression.tsv',
 #        'output/differential_splicing/new_clusters/{tissue}/{cell_type}/splicing.clusters.tsv',
@@ -2568,8 +2570,8 @@ methods_compare_latent_all = ["gene-expression/pca_40", "introns-shared-acceptor
 #
 #        obs = adata_exp.obs
 #        obs.loc[:, "cell_type"] = obs.cell_ontology_class.str.replace(" ", "_").str.replace("-", "_")
-#        cell_idx_a = np.where((clusters.Cluster==0))[0]
-#        cell_idx_b = np.where((clusters.Cluster==1))[0]
+#        cell_idx_a = np.where((clusters.cluster_spl==1))[0]
+#        cell_idx_b = np.where((clusters.cluster_spl==0))[0]
 #        print(len(cell_idx_a), len(cell_idx_b))
 #        MIN_FEATURES = 30
 #        diff_exp = run_differential_expression(adata_exp, cell_idx_a, cell_idx_b, MIN_FEATURES)
@@ -2996,7 +2998,8 @@ rule plot_marker_introns_dist_hepatocyte_clusters:
         adata_spl.obs["Cluster"] = adata_spl.obs.cluster_spl.astype(int).astype(str)
         print(adata_spl.shape)
 
-        all_marker_introns = pd.read_csv(input[1], "\t", header=None).values.astype(str).ravel().tolist()[:10]
+        all_marker_introns = pd.read_csv(input[1], "\t").head(10)
+        all_marker_introns = all_marker_introns.marker_intron.values
 
         adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
         adata_spl = adata_spl[:, all_marker_introns]
@@ -3049,352 +3052,349 @@ rule plot_marker_introns_dist_hepatocyte_clusters:
         g.savefig(output[0], bbox_inches="tight")
 
 
-rule differential_test_marrow_b:
+rule plot_marker_genes_hepatocyte_clusters:
     input:
         "output/quantification/gene-expression/adata_annotated.h5ad",
-        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+        "output/differential_splicing/new_clusters/Liver/hepatocyte/expression.tsv",
+        "output/gene_name.txt",
     output:
-        'output/differential_splicing/marrow_b/{cell_type}/expression.tsv',
-        'output/differential_splicing/marrow_b/{cell_type}/splicing.clusters.tsv',
-        'output/differential_splicing/marrow_b/{cell_type}/splicing.introns.tsv',
-    threads: workflow.cores // 4
+        "output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg",
     run:
-        adata_exp = anndata.read_h5ad(input[0])
-        adata_exp.obs.index = adata_exp.obs.index.astype(str)
-        adata_spl = anndata.read_h5ad(input[1])
-        adata_spl.obs.index = adata_spl.obs.index.astype(str)
-        adata_spl.var.index = adata_spl.var.index.astype(str)
-        assert((adata_exp.obs.index == adata_spl.obs.index).all())
-        obs = adata_exp.obs
-        obs = obs.replace("late pro-B cell", "(1) pro-B")
-        obs = obs.replace("precursor B cell", "(2) pre-B")
-        obs = obs.replace("immature B cell", "(3) immature B")
-        obs = obs.replace("naive B cell", "(4) naive B")
-        mask = obs.cell_ontology_class.isin(cell_type_order)
+        adata = anndata.read_h5ad(input[0])
 
-        cell_idx_a = np.where(mask & (obs.cell_ontology_class==wildcards["cell_type"]))[0]
-        cell_idx_b = np.where(mask & (obs.cell_ontology_class!=wildcards["cell_type"]))[0]
+        new_clusters = pd.read_csv("output/comparison/Liver-hepatocyte/clusters_spl.tsv", "\t", index_col=0)
+        adata.obs = adata.obs.merge(new_clusters, how="left", left_index=True, right_index=True)
+        print(adata.shape)
+        adata = adata[~adata.obs.cluster_spl.isna()]
+        #adata.obs["Cluster"] = "Cluster " + adata.obs.cluster_spl.astype(int).astype(str)
+        adata.obs["Cluster"] = adata.obs.cluster_spl.astype(int).astype(str)
+        print(adata.shape)
 
-        MIN_FEATURES = 50
-        diff_exp = run_differential_expression(adata_exp, cell_idx_a, cell_idx_b, MIN_FEATURES)
-        diff_exp.to_csv(output[0], '\t', index=False)
-        diff_spl_clusters, diff_spl_introns = run_differential_splicing(
-            adata_spl,
-            cell_idx_a,
-            cell_idx_b,
-            min_cells_per_cluster=MIN_FEATURES,
-            min_total_cells_per_intron=MIN_FEATURES,
-            n_jobs=threads,
-            do_recluster=False,
-        )
-        diff_spl_clusters.to_csv(output[1], '\t')
-        diff_spl_introns.to_csv(output[2], '\t')
+        marker_gene_ids = pd.read_csv(input[1], "\t").head(10).gene.values
+        gene_name = pd.read_csv(input[2], "\t", index_col=0)
+        marker_gene_names = gene_name.loc[marker_gene_ids].values.ravel()
+        print(marker_gene_ids, marker_gene_names)
+        adata.var = adata.var.merge(gene_name, how="left", left_index=True, right_index=True)
+        print(adata.var)
 
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
 
-rule plot_marker_introns_dist_marrow_b:
-    input:
-        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-        expand('output/differential_splicing/marrow_b/{cell_type}/marker_introns.tsv', cell_type=cell_type_order),
-    output:
-        "output/differential_splicing/marrow_b/marker_introns_dist.svg",
-    run:
-        adata_spl = anndata.read_h5ad(input[0])
-        adata_spl.var["prev_id"] = adata_spl.var.index.values
-        adata_spl.var["id"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
-        adata_spl.var = adata_spl.var.set_index("id")
+        adata = adata[:, marker_gene_ids]
+        adata.var = adata.var.set_index("gene_name")
 
-        adata_spl.obs = adata_spl.obs.replace("late pro-B cell", "(1) pro-B")
-        adata_spl.obs = adata_spl.obs.replace("precursor B cell", "(2) pre-B")
-        adata_spl.obs = adata_spl.obs.replace("immature B cell", "(3) immature B")
-        adata_spl.obs = adata_spl.obs.replace("naive B cell", "(4) naive B")
-        mask = adata_spl.obs.cell_ontology_class.isin(cell_type_order)
-        #adata_spl = adata_spl[mask]
-        adata_spl = adata_spl[mask].copy()
+        #g = sc.pl.stacked_violin(
+        #    adata, marker_gene_names, groupby='Cluster', swap_axes=True,
+        #    return_fig=True, row_palette="tab10",
+        #)
+        #plt.tight_layout()
+        #g.savefig(output[0], bbox_inches="tight")
 
-        all_marker_introns = []
-        for input_path in input[1:]:
-            marker_introns = pd.read_csv(input_path, "\t", header=None).values.astype(str).ravel().tolist()[:5]
-            all_marker_introns += marker_introns
-        print(all_marker_introns)
-        print(len(all_marker_introns))
-        all_marker_introns = pd.unique(all_marker_introns)
-        print(len(all_marker_introns))
-        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
-        adata_spl = adata_spl[:, all_marker_introns]
-        for cell_type in cell_type_order:
-            print(cell_type)
-            for intron in all_marker_introns:
-                idx_cells = np.where(adata_spl.obs.cell_ontology_class==cell_type)[0]
-                n_defined = (~np.isnan(adata_spl[idx_cells, intron].X)).sum()
-                if n_defined < 10:
-                    adata_spl[idx_cells, intron].X = np.nan
+        obs = adata.obs
+        obs.loc[:, marker_gene_names] = adata.X.toarray()
 
-        #adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
-        #adata_spl = adata_spl[:, all_marker_introns]
+        for gene_name in marker_gene_names:
+            print(gene_name)
+            sorted_obs = obs[gene_name].sort_values()
+            print(sorted_obs.head())
+            print(sorted_obs.tail())
+            obs.loc[sorted_obs.head(5).index.values, gene_name] = np.nan
+            obs.loc[sorted_obs.tail(5).index.values, gene_name] = np.nan
+            sorted_obs = obs[gene_name].sort_values()
+            print(sorted_obs.head())
+            print(sorted_obs.tail())
 
-        gene_name = pd.read_csv("output/gene_name.txt", "\t", index_col=0)
-        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
-        #adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.index
-        adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
-        adata_spl.var = adata_spl.var.set_index("id")
-
-        marker_introns = adata_spl.var.index.values
-        print("len(marker_introns): ", len(marker_introns))
-
-        obs = adata_spl.obs
-        obs.loc[:, marker_introns] = adata_spl.X
+        #raise Exception("debug")
         obs["sample_id"] = obs.index.values
-        obs["Cell type"] = obs.cell_ontology_class
-        obs = obs.melt(id_vars=["sample_id", "Cell type"], value_vars=marker_introns, var_name="Intron", value_name="PSI")
+        obs = obs.melt(id_vars=["sample_id", "Cluster"], value_vars=marker_gene_names, var_name="Gene", value_name="Expr.")
+        print(obs)
 
-        g = sns.FacetGrid(
-            obs,
-            col="Cell type",
-            col_order=cell_type_order,
-            hue="Cell type",
-            row="Intron",
+        g = sns.catplot(
+            data=obs,
+            x="Cluster",
+            hue="Cluster",
+            y="Expr.",
+            row="Gene",
             palette="tab10",
-            sharex=False,
-            sharey=True,
+            sharex=True,
+            sharey=False,
             height=1.5,
-            aspect=1,
+            aspect=1.5,
             margin_titles=True,
+            kind="violin",
+            cut=0,
+            scale="area",
+#                scale="width",
+#                width=0.75,
         )
-        eps = 1e-4
-        #n_bins = 10
-        n_bins = 5
-        g.map_dataframe(
-            sns.histplot,
-            y="PSI",
-            bins=np.linspace(0-eps, 1+eps, n_bins+1),
-            stat="probability",
-        )
-        g = g.map(lambda y, **kw: plt.axhline(y.mean(), color=kw["color"], ls="--"), 'PSI')
 
         g.fig.subplots_adjust(wspace=0.1, hspace=0.12)
-        g.set_titles(col_template="{col_name}", row_template="{row_name}")
-        g.set_ylabels("PSI")
-        g.set_xlabels("")
-        g.set(xticks=[])
-        g.set(xlim=(0, 1), ylim=(0, 1))
+        g.set_titles(row_template="{row_name}")
+        #plt.xticks(rotation=45)
+        #plt.xlabel("")
+        #g.set_ylabels("PSI")
+        #g.set_xlabels("")
+        #g.set(xticks=[])
+        #g.set(xlim=(0, 1), ylim=(0, 1))
         #sns.despine(bottom=True)
         sns.despine()
         g.savefig(output[0], bbox_inches="tight")
 
-
-rule plot_marker_introns_trajectory_marrow_b:
-    input:
-        "output/quantification/gene-expression/adata_annotated.h5ad",
-        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-        expand('output/differential_splicing/marrow_b/{cell_type}/marker_introns.tsv', cell_type=cell_type_order),
-    output:
-        "output/differential_splicing/marrow_b/marker_introns_trajectory_spl.svg",
-        "output/differential_splicing/marrow_b/marker_introns_trajectory_exp.svg",
-    run:
-        adata_exp = anndata.read_h5ad(input[0])
-
-        adata_spl = anndata.read_h5ad(input[1])
-        adata_spl.var["prev_id"] = adata_spl.var.index.values
-        adata_spl.var["id"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
-        adata_spl.var = adata_spl.var.set_index("id")
-
-        adata_spl.obs = adata_spl.obs.replace("late pro-B cell", "(1)")
-        adata_spl.obs = adata_spl.obs.replace("precursor B cell", "(2)")
-        adata_spl.obs = adata_spl.obs.replace("immature B cell", "(3)")
-        adata_spl.obs = adata_spl.obs.replace("naive B cell", "(4)")
-        new_cell_type_order = ["(1)", "(2)", "(3)", "(4)"]
-        mask = adata_spl.obs.cell_ontology_class.isin(new_cell_type_order)
-        #adata_spl = adata_spl[mask]
-
-        adata_exp = adata_exp[mask].copy()
-        adata_spl = adata_spl[mask].copy()
-
-        sc.pp.normalize_total(adata_exp, target_sum=1e4)
-        sc.pp.log1p(adata_exp)
-        #X = adata.X.toarray()
-
-        all_marker_introns = []
-        i = 0
-        for input_path in input[2:]:
-            #marker_introns = pd.read_csv(input_path, "\t", header=None).values.astype(str).ravel().tolist()[:5]
-            n_examples = [3, 3, 4, 5]
-            marker_introns = pd.read_csv(input_path, "\t").head(n_examples[i])
-            marker_introns["group"] = i
-            all_marker_introns.append(marker_introns)
-            if i == 3:
-                marker_introns = pd.read_csv(input_path, "\t")
-                marker_introns = marker_introns[marker_introns.marker_intron=="chr6:99260420-99266347"]
-                marker_introns["group"] = i
-                all_marker_introns.append(marker_introns)
-            i += 1
-        marker_introns = pd.concat(all_marker_introns, ignore_index=True)
-        print(marker_introns.group.value_counts())
-        marker_introns = marker_introns.drop_duplicates(["gene_id"])
-        marker_introns = marker_introns.iloc[[0, 3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 11]]
-        print(marker_introns.group.value_counts())
-
-        gene_ids = marker_introns.gene_id.values
-        gene_names = marker_introns.gene_name.values
-        adata_exp = adata_exp[:, gene_ids]
-        adata_exp.X = adata_exp.X.toarray()
-
-        introns = marker_introns.marker_intron.values
-        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
-        adata_spl = adata_spl[:, introns]
-
-        for cell_type in new_cell_type_order:
-            print(cell_type)
-            for intron in introns:
-                idx_cells = np.where(adata_spl.obs.cell_ontology_class==cell_type)[0]
-                n_defined = (~np.isnan(adata_spl[idx_cells, intron].X)).sum()
-                if n_defined < 3:
-                    print("here")
-                    raise Exception("debug")
-                    adata_spl[idx_cells, intron].X = np.nan
-
-        gene_name = pd.read_csv("output/gene_name.txt", "\t", index_col=0)
-        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
-        #adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.index
-        adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
-        adata_spl.var = adata_spl.var.set_index("id")
-        introns = adata_spl.var.index.values
-
-        obs = adata_spl.obs
-        #obs.loc[:, gene_names] = adata_exp.X
-        obs.loc[:, introns] = adata_spl.X
-        obs.loc[:, gene_names] = adata_exp.X.toarray()
-
-        obs["sample_id"] = obs.index.values
-        obs["Cell type"] = obs.cell_ontology_class
-        obs_melt = obs.melt(id_vars=["sample_id", "Cell type"], value_vars=introns, var_name="Intron", value_name="PSI")
-
-        #g = sns.FacetGrid(
-        #    obs,
-        #    row="Intron",
-        #    row_order=introns,
-        #    palette="tab10",
-        #    sharex=True,
-        #    sharey=False,
-        #    height=3.0,
-        #    aspect=1.5,
-        #    margin_titles=True,
-        #)
-        #g.map_dataframe(
-        #    #sns.lineplot,
-        #    sns.catplot,
-        #    kind="point",
-        #    order=new_cell_type_order,
-        #    x="Cell type",
-        #    y="PSI",
-        #)
-        color_exp = "C9"
-        color_spl = "C4"
-
-        obs_melt["foo"] = "foo"
-        g = sns.catplot(
-            data=obs_melt,
-            col="Intron",
-            col_order=introns,
-            col_wrap=4,
-            #row="Intron",
-            #row_order=introns,
-            palette=[color_spl],
-            sharex=True,
-            sharey=False,
-            #height=2.0,
-            height=1.7,
-            aspect=1.5,
-            #margin_titles=True,
-            kind="point",
-            ci=None,
-            #kind="box",
-            order=new_cell_type_order,
-            hue="foo",
-            x="Cell type",
-            y="PSI",
-            legend=False,
-        )
-        g.fig.subplots_adjust(hspace=0.3, wspace=0.7)
-
-        i = 0
-        for idx, marker_intron in marker_introns.iterrows():
-            ax = g.axes.flat[i]
-            i += 1
-            #ax.set_title(ax.get_title(), fontsize='xx-large')
-            ax2 = ax.twinx()
-            mean_exp = obs.groupby("Cell type")[marker_intron.gene_name].mean().loc[new_cell_type_order].values
-            ax2.plot(ax.get_xticks(), mean_exp, color=color_exp, marker="o", linestyle="-", linewidth=3, markersize=8)
-            ax.yaxis.set_tick_params(labelsize=8)
-            ax2.yaxis.set_tick_params(labelsize=8)
-            ax.set_ylabel("Mean PSI", color=color_spl, labelpad=0.5)
-            ax2.set_ylabel("Mean expr.", color=color_exp, labelpad=0.5)
-
-        g.set_titles(col_template="{col_name}", row_template="{row_name}")
-        #g.set_ylabels("PSI")
-        #g.set_xlabels("")
-        #g.set(xticks=[])
-        #g.set(xlim=(0, 1), ylim=(0, 1))
-        sns.despine(bottom=True, right=False)
-        #sns.despine()
-        g.savefig(output[0], bbox_inches="tight")
-        plt.close()
-
-
-        obs = adata_spl.obs
-        obs.loc[:, gene_names] = adata_exp.X.toarray()
-
-        obs["sample_id"] = obs.index.values
-        obs["Cell type"] = obs.cell_ontology_class
-        obs = obs.melt(id_vars=["sample_id", "Cell type"], value_vars=gene_names, var_name="Gene", value_name="log norm. expression")
-
-        #g = sns.FacetGrid(
-        #    obs,
-        #    row="Gene",
-        #    row_order=gene_names,
-        #    palette="tab10",
-        #    sharex=True,
-        #    sharey=False,
-        #    height=3.0,
-        #    aspect=1.5,
-        #    margin_titles=True,
-        #)
-        #g.map_dataframe(
-        #    #sns.lineplot,
-        #    sns.catplot,
-        #    kind="point",
-        #    order=new_cell_type_order,
-        #    x="Cell type",
-        #    y="log norm. expression",
-        #    ci=None,
-        #)
-
-        obs["foo"] = "foo"
-        g = sns.catplot(
-            data=obs,
-            row="Gene",
-            row_order=gene_names,
-            palette="tab10",
-            sharex=True,
-            sharey=False,
-            height=2.0,
-            aspect=1.5,
-            margin_titles=True,
-            kind="point",
-            #kind="box",
-            order=new_cell_type_order,
-            hue="foo",
-            x="Cell type",
-            y="log norm. expression",
-            legend=False,
-            ci=None,
-        )
-
-        g.fig.subplots_adjust(hspace=0.1)
-        g.set_titles(col_template="{col_name}", row_template="{row_name}")
-        #g.set_ylabels("PSI")
-        #g.set_xlabels("")
-        #g.set(xticks=[])
-        #g.set(xlim=(0, 1), ylim=(0, 1))
-        #sns.despine(bottom=True)
-        #sns.despine()
-        g.savefig(output[1], bbox_inches="tight")
+#rule differential_test_marrow_b:
+#    input:
+#        "output/quantification/gene-expression/adata_annotated.h5ad",
+#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+#    output:
+#        'output/differential_splicing/marrow_b/{cell_type}/expression.tsv',
+#        'output/differential_splicing/marrow_b/{cell_type}/splicing.clusters.tsv',
+#        'output/differential_splicing/marrow_b/{cell_type}/splicing.introns.tsv',
+#    threads: workflow.cores // 4
+#    run:
+#        adata_exp = anndata.read_h5ad(input[0])
+#        adata_exp.obs.index = adata_exp.obs.index.astype(str)
+#        adata_spl = anndata.read_h5ad(input[1])
+#        adata_spl.obs.index = adata_spl.obs.index.astype(str)
+#        adata_spl.var.index = adata_spl.var.index.astype(str)
+#        assert((adata_exp.obs.index == adata_spl.obs.index).all())
+#        obs = adata_exp.obs
+#        obs = obs.replace("late pro-B cell", "(1) pro-B")
+#        obs = obs.replace("precursor B cell", "(2) pre-B")
+#        obs = obs.replace("immature B cell", "(3) immature B")
+#        obs = obs.replace("naive B cell", "(4) naive B")
+#        mask = obs.cell_ontology_class.isin(cell_type_order)
+#
+#        cell_idx_a = np.where(mask & (obs.cell_ontology_class==wildcards["cell_type"]))[0]
+#        cell_idx_b = np.where(mask & (obs.cell_ontology_class!=wildcards["cell_type"]))[0]
+#
+#        MIN_FEATURES = 50
+#        diff_exp = run_differential_expression(adata_exp, cell_idx_a, cell_idx_b, MIN_FEATURES)
+#        diff_exp.to_csv(output[0], '\t', index=False)
+#        diff_spl_clusters, diff_spl_introns = run_differential_splicing(
+#            adata_spl,
+#            cell_idx_a,
+#            cell_idx_b,
+#            min_cells_per_cluster=MIN_FEATURES,
+#            min_total_cells_per_intron=MIN_FEATURES,
+#            n_jobs=threads,
+#            do_recluster=False,
+#        )
+#        diff_spl_clusters.to_csv(output[1], '\t')
+#        diff_spl_introns.to_csv(output[2], '\t')
+#
+#
+#rule plot_marker_introns_dist_marrow_b:
+#    input:
+#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+#        expand('output/differential_splicing/marrow_b/{cell_type}/marker_introns.tsv', cell_type=cell_type_order),
+#    output:
+#        "output/differential_splicing/marrow_b/marker_introns_dist.svg",
+#    run:
+#        adata_spl = anndata.read_h5ad(input[0])
+#        adata_spl.var["prev_id"] = adata_spl.var.index.values
+#        adata_spl.var["id"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
+#        adata_spl.var = adata_spl.var.set_index("id")
+#
+#        adata_spl.obs = adata_spl.obs.replace("late pro-B cell", "(1) pro-B")
+#        adata_spl.obs = adata_spl.obs.replace("precursor B cell", "(2) pre-B")
+#        adata_spl.obs = adata_spl.obs.replace("immature B cell", "(3) immature B")
+#        adata_spl.obs = adata_spl.obs.replace("naive B cell", "(4) naive B")
+#        mask = adata_spl.obs.cell_ontology_class.isin(cell_type_order)
+#        #adata_spl = adata_spl[mask]
+#        adata_spl = adata_spl[mask].copy()
+#
+#        all_marker_introns = []
+#        for input_path in input[1:]:
+#            marker_introns = pd.read_csv(input_path, "\t", header=None).values.astype(str).ravel().tolist()[:5]
+#            all_marker_introns += marker_introns
+#        print(all_marker_introns)
+#        print(len(all_marker_introns))
+#        all_marker_introns = pd.unique(all_marker_introns)
+#        print(len(all_marker_introns))
+#        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
+#        adata_spl = adata_spl[:, all_marker_introns]
+#        for cell_type in cell_type_order:
+#            print(cell_type)
+#            for intron in all_marker_introns:
+#                idx_cells = np.where(adata_spl.obs.cell_ontology_class==cell_type)[0]
+#                n_defined = (~np.isnan(adata_spl[idx_cells, intron].X)).sum()
+#                if n_defined < 10:
+#                    adata_spl[idx_cells, intron].X = np.nan
+#
+#        gene_name = pd.read_csv("output/gene_name.txt", "\t", index_col=0)
+#        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+#        #adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.index
+#        adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
+#        adata_spl.var = adata_spl.var.set_index("id")
+#
+#        marker_introns = adata_spl.var.index.values
+#        print("len(marker_introns): ", len(marker_introns))
+#
+#        obs = adata_spl.obs
+#        obs.loc[:, marker_introns] = adata_spl.X
+#        obs["sample_id"] = obs.index.values
+#        obs["Cell type"] = obs.cell_ontology_class
+#        obs = obs.melt(id_vars=["sample_id", "Cell type"], value_vars=marker_introns, var_name="Intron", value_name="PSI")
+#
+#        g = sns.FacetGrid(
+#            obs,
+#            col="Cell type",
+#            col_order=cell_type_order,
+#            hue="Cell type",
+#            row="Intron",
+#            palette="tab10",
+#            sharex=False,
+#            sharey=True,
+#            height=1.5,
+#            aspect=1,
+#            margin_titles=True,
+#        )
+#        eps = 1e-4
+#        #n_bins = 10
+#        n_bins = 5
+#        g.map_dataframe(
+#            sns.histplot,
+#            y="PSI",
+#            bins=np.linspace(0-eps, 1+eps, n_bins+1),
+#            stat="probability",
+#        )
+#        g = g.map(lambda y, **kw: plt.axhline(y.mean(), color=kw["color"], ls="--"), 'PSI')
+#
+#        g.fig.subplots_adjust(wspace=0.1, hspace=0.12)
+#        g.set_titles(col_template="{col_name}", row_template="{row_name}")
+#        g.set_ylabels("PSI")
+#        g.set_xlabels("")
+#        g.set(xticks=[])
+#        g.set(xlim=(0, 1), ylim=(0, 1))
+#        #sns.despine(bottom=True)
+#        sns.despine()
+#        g.savefig(output[0], bbox_inches="tight")
+#
+#
+#rule plot_marker_introns_trajectory_marrow_b:
+#    input:
+#        "output/quantification/gene-expression/adata_annotated.h5ad",
+#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+#        expand('output/differential_splicing/marrow_b/{cell_type}/marker_introns.tsv', cell_type=cell_type_order),
+#    output:
+#        "output/differential_splicing/marrow_b/marker_introns_trajectory_spl.svg",
+#    run:
+#        adata_exp = anndata.read_h5ad(input[0])
+#
+#        adata_spl = anndata.read_h5ad(input[1])
+#        adata_spl.var["prev_id"] = adata_spl.var.index.values
+#        adata_spl.var["id"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
+#        adata_spl.var = adata_spl.var.set_index("id")
+#
+#        adata_spl.obs = adata_spl.obs.replace("late pro-B cell", "(1)")
+#        adata_spl.obs = adata_spl.obs.replace("precursor B cell", "(2)")
+#        adata_spl.obs = adata_spl.obs.replace("immature B cell", "(3)")
+#        adata_spl.obs = adata_spl.obs.replace("naive B cell", "(4)")
+#        new_cell_type_order = ["(1)", "(2)", "(3)", "(4)"]
+#        mask = adata_spl.obs.cell_ontology_class.isin(new_cell_type_order)
+#        #adata_spl = adata_spl[mask]
+#
+#        adata_exp = adata_exp[mask].copy()
+#        adata_spl = adata_spl[mask].copy()
+#
+#        sc.pp.normalize_total(adata_exp, target_sum=1e4)
+#        sc.pp.log1p(adata_exp)
+#        #X = adata.X.toarray()
+#
+#        all_marker_introns = []
+#        i = 0
+#        for input_path in input[2:]:
+#            n_examples = [3, 3, 4, 5]
+#            marker_introns = pd.read_csv(input_path, "\t").head(n_examples[i])
+#            marker_introns["group"] = i
+#            all_marker_introns.append(marker_introns)
+#            if i == 3:
+#                marker_introns = pd.read_csv(input_path, "\t")
+#                marker_introns = marker_introns[marker_introns.marker_intron=="chr6:99260420-99266347"]
+#                marker_introns["group"] = i
+#                all_marker_introns.append(marker_introns)
+#            i += 1
+#        marker_introns = pd.concat(all_marker_introns, ignore_index=True)
+#        print(marker_introns.group.value_counts())
+#        marker_introns = marker_introns.drop_duplicates(["gene_id"])
+#        marker_introns = marker_introns.iloc[[0, 3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 11]]
+#        print(marker_introns.group.value_counts())
+#
+#        gene_ids = marker_introns.gene_id.values
+#        gene_names = marker_introns.gene_name.values
+#        adata_exp = adata_exp[:, gene_ids]
+#        adata_exp.X = adata_exp.X.toarray()
+#
+#        introns = marker_introns.marker_intron.values
+#        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
+#        adata_spl = adata_spl[:, introns]
+#
+#        for cell_type in new_cell_type_order:
+#            print(cell_type)
+#            for intron in introns:
+#                idx_cells = np.where(adata_spl.obs.cell_ontology_class==cell_type)[0]
+#                n_defined = (~np.isnan(adata_spl[idx_cells, intron].X)).sum()
+#                if n_defined < 3:
+#                    print("here")
+#                    raise Exception("debug")
+#                    adata_spl[idx_cells, intron].X = np.nan
+#
+#        gene_name = pd.read_csv("output/gene_name.txt", "\t", index_col=0)
+#        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+#        #adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.index
+#        adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
+#        adata_spl.var = adata_spl.var.set_index("id")
+#        introns = adata_spl.var.index.values
+#
+#        obs = adata_spl.obs
+#        #obs.loc[:, gene_names] = adata_exp.X
+#        obs.loc[:, introns] = adata_spl.X
+#        obs.loc[:, gene_names] = adata_exp.X.toarray()
+#
+#        obs["sample_id"] = obs.index.values
+#        obs["Cell type"] = obs.cell_ontology_class
+#        obs_melt = obs.melt(id_vars=["sample_id", "Cell type"], value_vars=introns, var_name="Intron", value_name="PSI")
+#
+#        color_exp = "C9"
+#        color_spl = "C4"
+#
+#        obs_melt["foo"] = "foo"
+#        g = sns.catplot(
+#            data=obs_melt,
+#            col="Intron",
+#            col_order=introns,
+#            col_wrap=4,
+#            #row="Intron",
+#            #row_order=introns,
+#            palette=[color_spl],
+#            sharex=True,
+#            sharey=False,
+#            #height=2.0,
+#            height=1.7,
+#            aspect=1.5,
+#            #margin_titles=True,
+#            kind="point",
+#            ci=None,
+#            #kind="box",
+#            order=new_cell_type_order,
+#            hue="foo",
+#            x="Cell type",
+#            y="PSI",
+#            legend=False,
+#        )
+#        g.fig.subplots_adjust(hspace=0.3, wspace=0.7)
+#
+#        i = 0
+#        for idx, marker_intron in marker_introns.iterrows():
+#            ax = g.axes.flat[i]
+#            i += 1
+#            ax2 = ax.twinx()
+#            mean_exp = obs.groupby("Cell type")[marker_intron.gene_name].mean().loc[new_cell_type_order].values
+#            ax2.plot(ax.get_xticks(), mean_exp, color=color_exp, marker="o", linestyle="-", linewidth=3, markersize=8)
+#            ax.yaxis.set_tick_params(labelsize=8)
+#            ax2.yaxis.set_tick_params(labelsize=8)
+#            ax.set_ylabel("Mean PSI", color=color_spl, labelpad=0.5)
+#            ax2.set_ylabel("Mean expr.", color=color_exp, labelpad=0.5)
+#
+#        g.set_titles(col_template="{col_name}", row_template="{row_name}")
+#        sns.despine(bottom=True, right=False)
+#        g.savefig(output[0], bbox_inches="tight")
