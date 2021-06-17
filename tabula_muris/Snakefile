@@ -14,7 +14,8 @@ from scipy.stats import chi2_contingency, spearmanr
 from shutil import copyfile
 from sklearn.cluster import KMeans, SpectralClustering
 from sklearn.decomposition import PCA, NMF
-from sklearn.linear_model import LogisticRegression
+from sklearn.feature_selection import RFECV, SelectFromModel
+from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 from statsmodels.stats.multitest import multipletests
@@ -69,7 +70,6 @@ print("len(sample_ids): ", len(sample_ids))
 sample_info.loc[:, "cell_type"] = sample_info.cell_ontology_class.str.replace(" ", "_").str.replace("-", "_")
 sample_info["plate_id"] = sample_info.index.str.split("_").str[1]
 
-print(sample_info[sample_info.tissue=="Marrow"].cell_type.value_counts())
 
 #cwd = os.getcwd()
 #pd.DataFrame(dict(
@@ -155,7 +155,7 @@ sample_info = sample_info.merge(new_clusters, how="left", left_index=True, right
 sample_info_notna = sample_info[~(sample_info.cluster_spl.isna())]
 sample_info_notna["Cluster"] = "cluster_" + sample_info_notna.cluster_spl.astype(int).astype(str)
 sample_info_notna["cell_type"] = sample_info_notna["cell_type"] + "_" + sample_info_notna.Cluster
-sample_info.loc[~(sample_info.cluster_spl.isna()), "cell_type"] = sample_info_notna["cell_type"].values
+#sample_info.loc[~(sample_info.cluster_spl.isna()), "cell_type"] = sample_info_notna["cell_type"].values
 
 tissues = sample_info.tissue.unique()
 cell_types = sample_info.cell_type.unique()
@@ -193,9 +193,20 @@ genes_to_plot = [
 
 cell_type_order = ["(1) pro-B", "(2) pre-B", "(3) immature B", "(4) naive B"]
 
+#features = ["all_exp", "tf_exp", "tf_exp_spl", "all_spl", "sf_exp", "sf_exp_spl",]
+features = ["all_exp", "tf_exp", "tf_exp_spl", "tf_spl",]
+#features = ["tf_exp", "tf_exp_spl", "sf_exp", "sf_exp_spl", "all_exp", "all_spl", "tf_spl", "sf_spl",]
+
 
 rule all:
     input:
+        "output/cell_type_classification/Mammary_Gland/basal_cell/variables.tsv",
+        #expand("output/dendrogram/all_exp-FALSE-{features2}-{scale2}/entanglement.txt", features2=["tf_exp", "tf_spl", "tf_exp_spl"], scale2=["TRUE", "FALSE"])
+        #expand("output/dendrogram/all_exp-TRUE-{features2}-{scale2}/entanglement.txt", features2=["all_exp", "tf_exp", "tf_spl", "tf_exp_spl", "sf_exp", "sf_spl", "sf_exp_spl"], scale2=["TRUE", "FALSE"])
+        #expand("output/dendrogram/{features}/features.tsv", features=features),
+        #"output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg",
+        #"output/differential_splicing/marrow_b/tf_Foxp1_trajectory.svg",
+        #"output/differential_splicing/marrow_b/tf_Smarca4_trajectory.svg",
 #        expand("output/bam_regions/Smarca4/{cell_type}/merged.bam", cell_type=genes_bam_merge["Smarca4"]["cell_types"]),
         #"output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.tsv",
         #"output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.tsv",
@@ -221,8 +232,10 @@ rule all:
         #'output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns_dist.svg',
         #'output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg',
         #'output/differential_splicing/new_clusters/Liver/hepatocyte/libsize.svg',
+        #'output/differential_splicing/new_clusters/Liver/hepatocyte/percent_mito.svg',
         #'output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.svg',
         #"output/comparison/Liver-hepatocyte/",
+        #"output/comparison/well/Liver-hepatocyte/",
         #"output/comparison/Heart-monocyte/",
         #"output/comparison/Marrow-hematopoietic_stem_cell/",
         #"output/comparison/all",
@@ -1603,42 +1616,62 @@ rule all:
 #        g.savefig(output[0], bbox_inches="tight")
 #
 #
-#rule prepare_adata_for_cellxgene:
-#    input:
-#        "output/quantification/gene-expression/adata_annotated.h5ad",
-#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-#        "output/gene_name.txt",
-#    output:
-#        "output/adata_cellxgene.h5ad",
-#    run:
-#        gene_name = pd.read_csv(input[2], "\t", index_col=0)
-#        adata_exp = anndata.read_h5ad(input[0])
-#        adata_exp.var = adata_exp.var.merge(gene_name, how="left", left_index=True, right_index=True)
-#        adata_exp.var["gene_id"] = adata_exp.var.index.values
-#        adata_exp.var = adata_exp.var.set_index("gene_name")
-#        adata_exp.var_names_make_unique()
-#        adata_exp.obs.index = adata_exp.obs.index.astype(str)
-#        adata_spl = anndata.read_h5ad(input[1])
-#        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
-#        adata_spl.var["id"] = adata_spl.var.gene_name + "_" + adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
-#        adata_spl.var = adata_spl.var.set_index("id", drop=False)
-#        adata_spl.obs.index = adata_spl.obs.index.astype(str)
-#        adata_spl.var.index = adata_spl.var.index.astype(str)
-#        assert((adata_exp.obs.index == adata_spl.obs.index).all())
-#        sc.pp.normalize_total(adata_exp, target_sum=1e4)
-#        sc.pp.log1p(adata_exp)
-#        adata_exp.X = adata_exp.X.toarray()
-#        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
-#        latent = PCA(n_components=40).fit_transform(adata_exp.X)
-#        proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
-#
-#        X = np.hstack((adata_exp.X, adata_spl.X))
-#        print(adata_exp.shape, adata_spl.shape, X.shape)
-#        obs = adata_exp.obs
-#        var = pd.concat([adata_exp.var, adata_spl.var])
-#        adata = anndata.AnnData(X=X, obs=obs, var=var)
-#        adata.obsm["X_umap"] = proj
-#        adata.write_h5ad(output[0], compression="gzip")
+rule prepare_adata_for_cellxgene:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+        "output/gene_name.txt",
+    output:
+        "output/adata_cellxgene_for_dendrogram_{smooth}.h5ad",
+    run:
+        gene_name = pd.read_csv(input[2], "\t", index_col=0)
+        adata_exp = anndata.read_h5ad(input[0])
+        adata_exp.var = adata_exp.var.merge(gene_name, how="left", left_index=True, right_index=True)
+        adata_exp.var["gene_id"] = adata_exp.var.index.values
+        adata_exp.var = adata_exp.var.set_index("gene_name")
+        adata_exp.var_names_make_unique()
+        adata_exp.obs.index = adata_exp.obs.index.astype(str)
+        adata_spl = anndata.read_h5ad(input[1])
+        adata_spl = filter_min_cells_per_feature(adata_spl, 100)
+        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+        adata_spl.var["id"] = adata_spl.var.gene_name + "_" + adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
+        adata_spl.var = adata_spl.var.set_index("id", drop=False)
+        adata_spl.obs.index = adata_spl.obs.index.astype(str)
+        adata_spl.var.index = adata_spl.var.index.astype(str)
+        assert((adata_exp.obs.index == adata_spl.obs.index).all())
+        sc.pp.normalize_total(adata_exp, target_sum=1e4)
+        sc.pp.log1p(adata_exp)
+        sc.pp.filter_genes(adata_exp, min_cells=100)
+        adata_exp.X = adata_exp.X.toarray()
+        #adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
+        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=wildcards["smooth"]=="True")
+
+        intron_clusters = adata_spl.var.cluster.values
+        all_intron_clusters = np.unique(intron_clusters)
+        first_indices_dict = {}
+        not_first_indices = []
+        for i, c in enumerate(intron_clusters):
+            if c not in first_indices_dict:
+                first_indices_dict[c] = i
+            else:
+                not_first_indices.append(i)
+        first_indices = np.array([first_indices_dict[c] for c in all_intron_clusters])
+        not_first_indices = np.array(not_first_indices)
+        new_idx = adata_spl.var.index.values[not_first_indices]
+        print(adata_spl.var.index)
+        adata_spl = adata_spl[:, new_idx]
+        print(adata_spl.var.index)
+
+        latent = PCA(n_components=40).fit_transform(adata_exp.X)
+        proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
+
+        X = np.hstack((adata_exp.X, adata_spl.X))
+        print(adata_exp.shape, adata_spl.shape, X.shape)
+        obs = adata_exp.obs
+        var = pd.concat([adata_exp.var, adata_spl.var])
+        adata = anndata.AnnData(X=X, obs=obs, var=var)
+        adata.obsm["X_umap"] = proj
+        adata.write_h5ad(output[0], compression="gzip")
 #
 #
 #rule make_bam_paths_tct:
@@ -2457,7 +2490,7 @@ rule all:
 methods_compare_latent_all = ["gene-expression/pca_40", "introns-shared-acceptor/vae_hyperopt"]
 ###methods_compare_latent_all = ["gene-expression/pca_20", "introns-shared-acceptor/vae_frequency-smoothed_False_100", "introns-shared-acceptor/vae_hyperopt"]
 ###methods_compare_latent_all_names = ["Expression", "Splicing-PCA", "Splicing-VAE"]
-#methods_compare_latent_all_names = ["Expression", "Splicing"]
+methods_compare_latent_all_names = ["Expression", "Splicing"]
 ##methods_compare_latent_all_names = ["Expression", "Splicing-VAE", "Splicing-PCA", "Splicing-PCA-HV"]
 ##
 #rule compare_latent_all:
@@ -3061,93 +3094,97 @@ methods_compare_latent_all = ["gene-expression/pca_40", "introns-shared-acceptor
 #        g.savefig(output[0], bbox_inches="tight")
 #
 #
-#rule plot_marker_genes_hepatocyte_clusters:
-#    input:
-#        "output/quantification/gene-expression/adata_annotated.h5ad",
-#        "output/differential_splicing/new_clusters/Liver/hepatocyte/expression.tsv",
-#        "output/gene_name.txt",
-#    output:
-#        "output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg",
-#    run:
-#        adata = anndata.read_h5ad(input[0])
-#
-#        new_clusters = pd.read_csv("output/comparison/Liver-hepatocyte/clusters_spl.tsv", "\t", index_col=0)
-#        adata.obs = adata.obs.merge(new_clusters, how="left", left_index=True, right_index=True)
-#        print(adata.shape)
-#        adata = adata[~adata.obs.cluster_spl.isna()]
-#        #adata.obs["Cluster"] = "Cluster " + adata.obs.cluster_spl.astype(int).astype(str)
-#        adata.obs["Cluster"] = adata.obs.cluster_spl.astype(int).astype(str)
-#        print(adata.shape)
-#
-#        marker_gene_ids = pd.read_csv(input[1], "\t").head(10).gene.values
-#        gene_name = pd.read_csv(input[2], "\t", index_col=0)
-#        marker_gene_names = gene_name.loc[marker_gene_ids].values.ravel()
-#        print(marker_gene_ids, marker_gene_names)
-#        adata.var = adata.var.merge(gene_name, how="left", left_index=True, right_index=True)
-#        print(adata.var)
-#
-#        sc.pp.normalize_total(adata, target_sum=1e4)
-#        sc.pp.log1p(adata)
-#
-#        adata = adata[:, marker_gene_ids]
-#        adata.var = adata.var.set_index("gene_name")
-#
-#        #g = sc.pl.stacked_violin(
-#        #    adata, marker_gene_names, groupby='Cluster', swap_axes=True,
-#        #    return_fig=True, row_palette="tab10",
-#        #)
-#        #plt.tight_layout()
-#        #g.savefig(output[0], bbox_inches="tight")
-#
-#        obs = adata.obs
-#        obs.loc[:, marker_gene_names] = adata.X.toarray()
-#
-#        for gene_name in marker_gene_names:
-#            print(gene_name)
-#            sorted_obs = obs[gene_name].sort_values()
-#            print(sorted_obs.head())
-#            print(sorted_obs.tail())
-#            obs.loc[sorted_obs.head(5).index.values, gene_name] = np.nan
-#            obs.loc[sorted_obs.tail(5).index.values, gene_name] = np.nan
-#            sorted_obs = obs[gene_name].sort_values()
-#            print(sorted_obs.head())
-#            print(sorted_obs.tail())
-#
-#        #raise Exception("debug")
-#        obs["sample_id"] = obs.index.values
-#        obs = obs.melt(id_vars=["sample_id", "Cluster"], value_vars=marker_gene_names, var_name="Gene", value_name="Expr.")
-#        print(obs)
-#
-#        g = sns.catplot(
-#            data=obs,
-#            x="Cluster",
-#            hue="Cluster",
-#            y="Expr.",
-#            row="Gene",
-#            palette="tab10",
-#            sharex=True,
-#            sharey=False,
-#            height=1.5,
-#            aspect=1.5,
-#            margin_titles=True,
-#            kind="violin",
-#            cut=0,
-#            scale="area",
-##                scale="width",
-##                width=0.75,
-#        )
-#
-#        g.fig.subplots_adjust(wspace=0.1, hspace=0.12)
-#        g.set_titles(row_template="{row_name}")
-#        #plt.xticks(rotation=45)
-#        #plt.xlabel("")
-#        #g.set_ylabels("PSI")
-#        #g.set_xlabels("")
-#        #g.set(xticks=[])
-#        #g.set(xlim=(0, 1), ylim=(0, 1))
-#        #sns.despine(bottom=True)
-#        sns.despine()
-#        g.savefig(output[0], bbox_inches="tight")
+rule plot_marker_genes_hepatocyte_clusters:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+        "output/differential_splicing/new_clusters/Liver/hepatocyte/expression.tsv",
+        "output/gene_name.txt",
+    output:
+        "output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg",
+    run:
+        adata = anndata.read_h5ad(input[0])
+
+        new_clusters = pd.read_csv("output/comparison/Liver-hepatocyte/clusters_spl.tsv", "\t", index_col=0)
+        adata.obs = adata.obs.merge(new_clusters, how="left", left_index=True, right_index=True)
+        print(adata.shape)
+        #adata = adata[~adata.obs.cluster_spl.isna()]
+        adata = adata[(~adata.obs.cluster_spl.isna()) & (adata.obs.subtissue=="Hepatocytes")]
+        #adata.obs["Cluster"] = "Cluster " + adata.obs.cluster_spl.astype(int).astype(str)
+        adata.obs["Cluster"] = adata.obs.cluster_spl.astype(int).astype(str)
+        print(adata.shape)
+
+        #marker_gene_ids = pd.read_csv(input[1], "\t").head(10).gene.values
+        #marker_gene_ids = ["ENSMUSG00000054932", "ENSMUSG00000055653", "ENSMUSG00000029368"]
+        marker_gene_ids = ["ENSMUSG00000026473", "ENSMUSG00000025479", "ENSMUSG00000076441", "ENSMUSG00000025533", "ENSMUSG00000029368"]
+        #GLUL, CYP2E1, ASS1, ASL, and ALB
+        gene_name = pd.read_csv(input[2], "\t", index_col=0)
+        marker_gene_names = gene_name.loc[marker_gene_ids].values.ravel()
+        print(marker_gene_ids, marker_gene_names)
+        adata.var = adata.var.merge(gene_name, how="left", left_index=True, right_index=True)
+        print(adata.var)
+
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
+
+        adata = adata[:, marker_gene_ids]
+        adata.var = adata.var.set_index("gene_name")
+
+        #g = sc.pl.stacked_violin(
+        #    adata, marker_gene_names, groupby='Cluster', swap_axes=True,
+        #    return_fig=True, row_palette="tab10",
+        #)
+        #plt.tight_layout()
+        #g.savefig(output[0], bbox_inches="tight")
+
+        obs = adata.obs
+        obs.loc[:, marker_gene_names] = adata.X.toarray()
+
+        for gene_name in marker_gene_names:
+            print(gene_name)
+            sorted_obs = obs[gene_name].sort_values()
+            print(sorted_obs.head())
+            print(sorted_obs.tail())
+            obs.loc[sorted_obs.head(5).index.values, gene_name] = np.nan
+            obs.loc[sorted_obs.tail(5).index.values, gene_name] = np.nan
+            sorted_obs = obs[gene_name].sort_values()
+            print(sorted_obs.head())
+            print(sorted_obs.tail())
+
+        #raise Exception("debug")
+        obs["sample_id"] = obs.index.values
+        obs = obs.melt(id_vars=["sample_id", "Cluster"], value_vars=marker_gene_names, var_name="Gene", value_name="Expr.")
+        print(obs)
+
+        g = sns.catplot(
+            data=obs,
+            x="Cluster",
+            hue="Cluster",
+            y="Expr.",
+            row="Gene",
+            palette="tab10",
+            sharex=True,
+            sharey=False,
+            height=1.5,
+            aspect=1.5,
+            margin_titles=True,
+            kind="violin",
+            cut=0,
+            scale="area",
+#                scale="width",
+#                width=0.75,
+        )
+
+        g.fig.subplots_adjust(wspace=0.1, hspace=0.12)
+        g.set_titles(row_template="{row_name}")
+        #plt.xticks(rotation=45)
+        #plt.xlabel("")
+        #g.set_ylabels("PSI")
+        #g.set_xlabels("")
+        #g.set(xticks=[])
+        #g.set(xlim=(0, 1), ylim=(0, 1))
+        #sns.despine(bottom=True)
+        sns.despine()
+        g.savefig(output[0], bbox_inches="tight")
 #
 #
 #rule plot_libsize_hepatocyte_clusters:
@@ -3172,6 +3209,42 @@ methods_compare_latent_all = ["gene-expression/pca_40", "introns-shared-acceptor
 #            x="Cluster", y="libsize", data=adata.obs, palette="tab10",
 #            cut=0,
 #        )
+#
+#        sns.despine()
+#        plt.savefig(output[0], bbox_inches="tight")
+#
+#
+#rule plot_percent_mito_hepatocyte_clusters:
+#    input:
+#        "output/quantification/gene-expression/adata_annotated.h5ad",
+#        "output/gene_name.txt",
+#    output:
+#        "output/differential_splicing/new_clusters/Liver/hepatocyte/percent_mito.svg",
+#    run:
+#        adata = anndata.read_h5ad(input[0])
+#        gene_name = pd.read_csv(input[1], "\t", index_col=0)
+#        adata.var = adata.var.merge(gene_name, how="left", left_index=True, right_index=True)
+#
+#        adata.var['mt'] = adata.var.gene_name.str.startswith('mt-')
+#        print(adata.var.mt.value_counts())
+#        sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], percent_top=None, log1p=False, inplace=True)
+#        adata = adata[adata.obs.pct_counts_mt < 20]
+#        print(adata)
+#
+#        new_clusters = pd.read_csv("output/comparison/Liver-hepatocyte/clusters_spl.tsv", "\t", index_col=0)
+#        adata.obs = adata.obs.merge(new_clusters, how="left", left_index=True, right_index=True)
+#        print(adata.shape)
+#        adata = adata[~adata.obs.cluster_spl.isna()]
+#        adata.obs["Cluster"] = adata.obs.cluster_spl.astype(int).astype(str)
+#        print(adata.shape)
+#        print(adata.obs.groupby("Cluster").pct_counts_mt.median())
+#
+#        ax = sns.violinplot(
+#            x="Cluster", y="pct_counts_mt", data=adata.obs, palette="tab10",
+#            cut=0,
+#        )
+#        ax.axhline(y=5, linestyle="--", color="black", label="Recommended threshold")
+#        plt.legend()
 #
 #        sns.despine()
 #        plt.savefig(output[0], bbox_inches="tight")
@@ -3435,3 +3508,291 @@ methods_compare_latent_all = ["gene-expression/pca_40", "introns-shared-acceptor
 #        g.set_titles(col_template="{col_name}", row_template="{row_name}")
 #        sns.despine(bottom=True, right=False)
 #        g.savefig(output[0], bbox_inches="tight")
+#
+#
+#rule compare_new_clusters_well:
+#    input:
+#        expand(
+#            "output/dimensionality_reduction/all/{method}/latent.txt",
+#            method=methods_compare_latent_all,
+#        )
+#    output:
+#        directory("output/comparison/well/{tissue}-{cell_type}/"),
+#    run:
+#        obs = sample_info
+#        cell_idx = np.where((obs.tissue==wildcards["tissue"])&(obs.cell_type==wildcards["cell_type"]))[0]
+#        obs = obs.iloc[cell_idx].copy()
+#        print(obs.shape)
+#        latents = [np.loadtxt(input_path)[cell_idx] for input_path in input]
+#
+#        latent_exp = latents[0]
+#        latent_spl = latents[1]
+#
+#        obs["cluster_spl"] = SpectralClustering(n_clusters=2, random_state=42, affinity="nearest_neighbors", n_neighbors=15).fit_predict(latent_spl)
+#        print(obs.cluster_spl.value_counts())
+#        obs["well_row"] = obs.index.str.split("_").str[0].str.slice(stop=1)
+#        obs["well_col"] = obs.index.str.split("_").str[0].str.slice(start=1).astype(int)
+#
+#        latent_names = methods_compare_latent_all
+#        labels_list = [obs.cell_ontology_class, obs.sex, obs["mouse.id"], obs.plate_id, obs.tissue, obs.cluster_spl, obs.well_row, obs.well_col]
+#        label_names = ["Cell type", "Sex", "Individual", "Plate", "Tissue", "Cluster spl", "Well row", "Well column"]
+#        projector = lambda: UMAP(min_dist=0.5, n_neighbors=15, random_state=42)
+#        projector_name = "UMAP_15"
+#        main_path = output[0]
+#
+#        if not os.path.exists(main_path):
+#            os.makedirs(main_path)
+#
+#        path = main_path
+#        plot_comparison(latents, latent_names, slice(None), labels_list, label_names, path, projector=projector, save=True)
+#
+#        obs = obs[obs.subtissue=="Hepatocytes"]
+#        sns.countplot(
+#            x="well_row", hue="cluster_spl", data=obs.sort_values(["well_row", "cluster_spl"]), palette="tab10",
+#        )
+#        plt.savefig(os.path.join(path, "countplot_well_row.pdf"), bbox_inches="tight")
+#        plt.close()
+#        sns.countplot(
+#            x="well_col", hue="cluster_spl", data=obs.sort_values(["well_col", "cluster_spl"]), palette="tab10",
+#        )
+#        plt.savefig(os.path.join(path, "countplot_well_col.pdf"), bbox_inches="tight")
+#
+#
+#tf_regulated = {
+#    "Foxp1": [
+#        "Rag1",
+#        "Rag2",
+#        "Pax5",
+#        "Prdm1",
+#        "Pou2f1",
+#    ],
+#    "Smarca4": [
+#        "Myc",
+#    ],
+#}
+#
+#rule plot_marrow_b_tf_trajectory:
+#    input:
+#        "output/quantification/gene-expression/adata_annotated.h5ad",
+#        "output/gene_name.txt",
+#    output:
+#        "output/differential_splicing/marrow_b/tf_{tf}_trajectory.svg",
+#    run:
+#        adata_exp = anndata.read_h5ad(input[0])
+#        print("ENSMUSG00000061311" in adata_exp.var.index.values)
+#        print(adata_exp.var.loc["ENSMUSG00000061311"])
+#        gene_name = pd.read_csv(input[1], "\t", index_col=0)
+#        adata_exp.var = adata_exp.var.merge(gene_name, how="left", left_index=True, right_index=True)
+#        adata_exp.var = adata_exp.var.set_index("gene_name")
+#        adata_exp.var_names_make_unique()
+#        print(adata_exp.var)
+#        print(adata_exp.var.loc["Rag1"])
+#        print(adata_exp.var.loc["Rag2"])
+#
+#        adata_exp.obs = adata_exp.obs.replace("late pro-B cell", "(1)")
+#        adata_exp.obs = adata_exp.obs.replace("precursor B cell", "(2)")
+#        adata_exp.obs = adata_exp.obs.replace("immature B cell", "(3)")
+#        adata_exp.obs = adata_exp.obs.replace("naive B cell", "(4)")
+#        new_cell_type_order = ["(1)", "(2)", "(3)", "(4)"]
+#        mask = adata_exp.obs.cell_ontology_class.isin(new_cell_type_order)
+#
+#        adata_exp = adata_exp[mask].copy()
+#
+#        sc.pp.normalize_total(adata_exp, target_sum=1e4)
+#        sc.pp.log1p(adata_exp)
+#
+#        genes_to_plot = [wildcards["tf"]] + tf_regulated[wildcards["tf"]]
+#        print(genes_to_plot)
+#        print(adata_exp.var)
+#        adata_exp = adata_exp[:, genes_to_plot]
+#
+#        obs = adata_exp.obs.copy()
+#        print(genes_to_plot)
+#        obs[genes_to_plot] = adata_exp.X.toarray()
+#
+#        obs["sample_id"] = obs.index.values
+#        obs["Cell type"] = obs.cell_ontology_class
+#        obs = obs.melt(id_vars=["sample_id", "Cell type"], value_vars=genes_to_plot, var_name="Gene", value_name="Expr.")
+#        ax = sns.pointplot(
+#            x="Cell type", y="Expr.", hue="Gene",
+#            data=obs,
+#            order=new_cell_type_order,
+#        )
+#        plt.savefig(output[0], bbox_inches="tight")
+
+
+rule produce_features_dendrogram:
+    input:
+        "output/adata_cellxgene_for_dendrogram_True.h5ad",
+    output:
+        "output/dendrogram/{features}/features.tsv",
+    run:
+        # TODO: consider filtering min cells (would need to do that before)
+        adata = anndata.read_h5ad(input[0])
+
+        min_cells_per_cell_type = 30 #100
+        adata.obs.cell_ontology_class = adata.obs.cell_ontology_class.astype(str)
+        cell_type_counts = adata.obs.cell_ontology_class.value_counts()
+        print(cell_type_counts)
+        cell_types = cell_type_counts[cell_type_counts >= min_cells_per_cell_type].index.values
+        print(cell_types)
+        print(len(cell_types))
+        print(adata.shape)
+        adata = adata[adata.obs.cell_ontology_class.isin(cell_types)]
+        print(adata.shape)
+
+        adata.var["feature_type"] = "Expression"
+        adata.var.index = adata.var.index.astype(str)
+        adata.var.gene_name = adata.var.gene_name.astype(str)
+        adata.var.loc[adata.var.index.str.contains("_chr"), "feature_type"] = "Splicing"
+        adata.var.loc[adata.var.gene_name=="nan", "gene_name"] = adata.var[adata.var.gene_name=="nan"].index.values
+
+        # obtained from tabula_muris github repo
+        dissociation_gene_names = pd.read_csv("input/genes_affected_by_dissociation_unix.csv").Gene.values
+        print(dissociation_gene_names)
+        tf_gene_names = pd.read_csv("input/GO_term_summary_20171110_222852.csv").Symbol.unique()
+        sf_gene_names = pd.read_csv("input/GO_term_summary_20171214_190641.csv").Symbol.unique()
+        tf_sf_gene_names = pd.unique(np.concatenate([tf_gene_names, sf_gene_names]))
+
+        adata = adata[:, ~(adata.var.gene_name.isin(dissociation_gene_names))]
+
+        features = wildcards["features"]
+        if features == "all_exp":
+            adata = adata[:, adata.var.feature_type=="Expression"]
+        elif features == "all_spl":
+            adata = adata[:, adata.var.feature_type=="Splicing"]
+        elif features == "tf_exp":
+            adata = adata[:, (adata.var.feature_type=="Expression") & (adata.var.gene_name.isin(tf_gene_names))]
+        elif features == "tf_spl":
+            adata = adata[:, (adata.var.feature_type=="Splicing") & (adata.var.gene_name.isin(tf_gene_names))]
+        elif features == "tf_exp_spl":
+            adata = adata[:, (adata.var.gene_name.isin(tf_gene_names))]
+        elif features == "sf_exp":
+            adata = adata[:, (adata.var.feature_type=="Expression") & (adata.var.gene_name.isin(sf_gene_names))]
+        elif features == "sf_spl":
+            adata = adata[:, (adata.var.feature_type=="Splicing") & (adata.var.gene_name.isin(sf_gene_names))]
+        elif features == "sf_exp_spl":
+            adata = adata[:, (adata.var.gene_name.isin(sf_gene_names))]
+        elif features == "tf_sf_exp":
+            adata = adata[:, (adata.var.feature_type=="Expression") & (adata.var.gene_name.isin(tf_sf_gene_names))]
+        elif features == "tf_sf_spl":
+            adata = adata[:, (adata.var.feature_type=="Splicing") & (adata.var.gene_name.isin(tf_sf_gene_names))]
+        elif features == "tf_sf_exp_spl":
+            adata = adata[:, (adata.var.gene_name.isin(tf_sf_gene_names))]
+        print(adata.shape)
+
+        #adata.obs["tct"] = adata.obs.tissue.astype(str) + "_" + adata.obs.cell_ontology_class.astype(str)
+        adata.obs = adata.obs.filter(items=["cell_ontology_class"])
+        adata.obs[adata.var.index.values] = adata.X
+        groupby = adata.obs.groupby("cell_ontology_class").mean()   # this is slow when using all genes. could use parallel version.
+        print(groupby)
+        groupby.to_csv(output[0], "\t")
+
+
+rule get_dendrogram_entanglement:
+    input:
+        "output/dendrogram/{features1}/features.tsv",
+        "output/dendrogram/{features2}/features.tsv",
+    output:
+        "output/dendrogram/{features1}-{scale1}-{features2}-{scale2}/entanglement.txt",
+    shell:
+        "Rscript compute_entanglement.R {input[0]} {wildcards.scale1} {input[1]} {wildcards.scale2} {output}"
+
+
+rule cell_type_classification_variable_selection:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+        "output/gene_name.txt",
+    output:
+        "output/cell_type_classification/{tissue}/{cell_type}/variables.tsv",
+    run:
+        gene_name = pd.read_csv(input[2], "\t", index_col=0)
+        adata_exp = anndata.read_h5ad(input[0])
+        adata_exp.var["feature_type"] = "Expression"
+        adata_exp = adata_exp[adata_exp.obs.tissue==wildcards["tissue"]]
+        adata_exp.var = adata_exp.var.merge(gene_name, how="left", left_index=True, right_index=True)
+        adata_exp.var["gene_id"] = adata_exp.var.index.values
+        adata_exp.var = adata_exp.var.set_index("gene_name", drop=False)
+        adata_exp.var_names_make_unique()
+        adata_exp.obs.index = adata_exp.obs.index.astype(str)
+        adata_spl = anndata.read_h5ad(input[1])
+        adata_spl.var["feature_type"] = "Splicing"
+        adata_spl = adata_spl[adata_spl.obs.tissue==wildcards["tissue"]]
+        adata_spl = filter_min_cells_per_feature(adata_spl, 100)
+        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+        adata_spl.var["id"] = adata_spl.var.gene_name + "_" + adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
+        adata_spl.var = adata_spl.var.set_index("id", drop=False)
+        adata_spl.obs.index = adata_spl.obs.index.astype(str)
+        adata_spl.var.index = adata_spl.var.index.astype(str)
+        assert((adata_exp.obs.index == adata_spl.obs.index).all())
+        sc.pp.normalize_total(adata_exp, target_sum=1e4)
+        sc.pp.log1p(adata_exp)
+        sc.pp.filter_genes(adata_exp, min_cells=100)
+
+        dissociation_gene_names = pd.read_csv("input/genes_affected_by_dissociation_unix.csv").Gene.values
+        tf_gene_names = pd.read_csv("input/GO_term_summary_20171110_222852.csv").Symbol.unique()
+        gene_names_to_use = list(set(tf_gene_names) - set(dissociation_gene_names))
+        adata_exp = adata_exp[:, adata_exp.var.gene_name.isin(gene_names_to_use)]
+        adata_spl = adata_spl[:, adata_spl.var.gene_name.isin(gene_names_to_use)]
+        adata_spl = filter_singletons(adata_spl)
+
+        adata_exp.X = adata_exp.X.toarray()
+        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=True)
+
+        intron_clusters = adata_spl.var.cluster.values
+        all_intron_clusters = np.unique(intron_clusters)
+        first_indices_dict = {}
+        not_first_indices = []
+        for i, c in enumerate(intron_clusters):
+            if c not in first_indices_dict:
+                first_indices_dict[c] = i
+            else:
+                not_first_indices.append(i)
+        first_indices = np.array([first_indices_dict[c] for c in all_intron_clusters])
+        not_first_indices = np.array(not_first_indices)
+        new_idx = adata_spl.var.index.values[not_first_indices]
+        adata_spl = adata_spl[:, new_idx]
+
+        print(adata_exp.shape, adata_spl.shape)
+        print(adata_exp.X.shape, adata_spl.X.shape)
+        print(type(adata_exp.X), type(adata_spl.X))
+
+        X = np.hstack((adata_exp.X.toarray(), adata_spl.X))
+        print(adata_exp.shape, adata_spl.shape, X.shape)
+        obs = adata_exp.obs
+        var = pd.concat([adata_exp.var, adata_spl.var])
+        adata = anndata.AnnData(X=X, obs=obs, var=var)
+        print(adata.var.feature_type.value_counts())
+        #adata = adata[:, adata.var.feature_type=="Expression"]
+        print(adata.var.feature_type.value_counts())
+
+        y = (adata.obs.cell_type == wildcards["cell_type"]).values
+        X = adata.X
+        print(X.shape, y.shape)
+
+        #estimator = LogisticRegression()
+        #selector = RFECV(estimator, step=0.05, cv=5, verbose=1, n_jobs=32)
+        #selector = selector.fit(X, Y)
+        # support = selector.support_
+
+        #estimator = LogisticRegressionCV(penalty="l1", n_jobs=32, solver="liblinear")
+        #selector = SelectFromModel(estimator=estimator).fit(X, Y)
+        #support = selector.get_support()
+        #coeffs = selector.estimator_.coef_.ravel()
+        #support = np.abs(coeffs) > 1e-5
+        seed = 42
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.33, random_state=seed, stratify=y,
+        )
+        #clf = LogisticRegression(random_state=seed, max_iter=10000)
+        clf = LogisticRegressionCV(penalty="l1", n_jobs=32, solver="liblinear", random_state=seed)
+        clf.fit(X_train, y_train)
+        y_pred = clf.predict(X_test)
+        y_proba = clf.predict_proba(X_test)
+        accuracy, f1, roc_auc = accuracy_score(y_test, y_pred), f1_score(y_test, y_pred), roc_auc_score(y_test, y_proba[:, 1])
+        print(accuracy, f1, roc_auc)
+
+        #adata.var["support"] = support
+        #print(adata.var[adata.var.support].feature_type.value_counts())

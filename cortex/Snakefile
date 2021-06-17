@@ -1031,6 +1031,11 @@ rule plot_marker_introns_class:
         adata_spl = adata_spl[adata_spl.obs["Cell type"].isin(cell_type_order)]
         introns = marker_introns.marker_intron.values
         adata_spl = adata_spl[:, introns]
+        adata_spl.var["Annotated"] = marker_introns.Annotated.astype(bool).values
+        adata_spl.var["Annotated_str"] = ""
+        print(adata_spl.var.Annotated)
+        print(~(adata_spl.var.Annotated))
+        adata_spl.var.loc[~(adata_spl.var.Annotated), "Annotated_str"] = "*"
 
         for cell_type in cell_type_order:
             print(cell_type)
@@ -1045,7 +1050,8 @@ rule plot_marker_introns_class:
         gene_name = pd.read_csv("output/gene_name.txt", "\t", index_col=0)
         adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
         #adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.index
-        adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
+        #adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
+        adata_spl.var.loc[:, "id"] = adata_spl.var.Annotated_str + adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
         adata_spl.var = adata_spl.var.set_index("id")
         print(adata_spl.var.index.values)
 
@@ -1156,6 +1162,11 @@ rule plot_marker_introns_subclass:
         adata_spl = adata_spl[adata_spl.obs["Cell type"].isin(cell_type_order)]
         introns = marker_introns.marker_intron.values
         adata_spl = adata_spl[:, introns]
+        adata_spl.var["Annotated"] = marker_introns.Annotated.astype(bool).values
+        adata_spl.var["Annotated_str"] = ""
+        print(adata_spl.var.Annotated)
+        print(~(adata_spl.var.Annotated))
+        adata_spl.var.loc[~(adata_spl.var.Annotated), "Annotated_str"] = "*"
 
         for cell_type in cell_type_order:
             print(cell_type)
@@ -1170,7 +1181,8 @@ rule plot_marker_introns_subclass:
         gene_name = pd.read_csv("output/gene_name.txt", "\t", index_col=0)
         adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
         #adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.index
-        adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
+        #adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
+        adata_spl.var.loc[:, "id"] = adata_spl.var.Annotated_str + adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
         adata_spl.var = adata_spl.var.set_index("id")
 
         g = sc.pl.matrixplot(
