@@ -56,33 +56,41 @@ groupings = ["nontransitive", "transitive", "gene"]
 
 
 genes_bam_merge = {
-    "Slmap": {
-        "region": ["chr14", 26410803, 26537837],
-        "cell_types": ["Lamp5", "L5_IT"],
-    },
-    "Aspg": {
-        "region": ["chr12", 112105842, 112128423],
-        "cell_types": ["L6_CT", "L6_IT"],
-    },
-    "Anapc11": {
-        "region": ["chr11", 120598421, 120608198],
-        "cell_types": ["Vip", "L6_CT", "L5slash6_NP"],
-    },
-    "Rbfox1": {
-        "region": ["chr16", 5661490, 7505109],
-        "cell_types": ["L6b", "L6_CT", "L2slash3_IT", "Lamp5"],
-    },
-    "Nrxn1": {
-        "region": ["chr17", 89990948, 91110697],
-        "cell_types": ["Vip", "L6_IT"],
-    },
-    "Rida": {
-        "region": ["chr15", 34483518, 34495265],
-        "cell_types": ["Sst", "L6_IT"],
-    },
-    "Pgm2": {
-        "region": ["chr5", 64092081, 64129179],
-        "cell_types": ["Sst", "L6b"],
+    #"Slmap": {
+    #    "region": ["chr14", 26410803, 26537837],
+    #    "cell_types": ["Lamp5", "L5_IT"],
+    #},
+    #"Aspg": {
+    #    "region": ["chr12", 112105842, 112128423],
+    #    "cell_types": ["L6_CT", "L6_IT"],
+    #},
+    #"Anapc11": {
+    #    "region": ["chr11", 120598421, 120608198],
+    #    "cell_types": ["Vip", "L6_CT", "L5slash6_NP"],
+    #},
+    #"Rbfox1": {
+    #    "region": ["chr16", 5661490, 7505109],
+    #    "cell_types": ["L6b", "L6_CT", "L2slash3_IT", "Lamp5"],
+    #},
+    #"Nrxn1": {
+    #    "region": ["chr17", 89990948, 91110697],
+    #    "cell_types": ["Vip", "L6_IT"],
+    #},
+    #"Rida": {
+    #    "region": ["chr15", 34483518, 34495265],
+    #    "cell_types": ["Sst", "L6_IT"],
+    #},
+    #"Pgm2": {
+    #    "region": ["chr5", 64092081, 64129179],
+    #    "cell_types": ["Sst", "L6b"],
+    #},
+    #"Khdrbs3": {
+    #    "region": ["chr15", 68926291, 68996845],
+    #    "cell_types": ["L5_IT",  "L5slash6_NP", "Lamp5"],
+    #},
+    "Mbnl2": {
+        "region": ["chr14", 120396021, 120429250],
+        "cell_types": ["Vip",  "Pvalb", "Lamp5"],
     },
 }
 
@@ -139,6 +147,8 @@ quantifications_gaba_subset = ["gene-expression", "kallisto", "bins", "exons", "
 
 rule all:
     input:
+        #expand("output/bam_regions/Mbnl2/{cell_type}/merged.bam", cell_type=genes_bam_merge["Mbnl2"]["cell_types"]),
+        #expand("output/bam_regions/Khdrbs3/{cell_type}/merged.bam", cell_type=genes_bam_merge["Khdrbs3"]["cell_types"]),
         'output/diff_spl/class_label/marker_introns.svg',
         'output/diff_spl/subclass_label/marker_introns.svg',
         #expand('output/diff_spl/class_label/{class_label}/splicing.clusters.tsv', class_label=["Glutamatergic", "GABAergic"]),
@@ -309,36 +319,37 @@ rule all:
 #        adata.write(output[0], compression="gzip")
 #
 #
-#rule filter_bam_to_region:
-#    input:
-#        "output/filtered_bams/{sample_id}.bam"
-#    output:
-#        temp("output/bam_regions/{gene}/{sample_id}.bam")
-#    run:
-#        chromosome, start, end = genes_bam_merge[wildcards["gene"]]["region"]
-#        shell(f"bamtools filter -region {chromosome}:{start}..{end} -in {input} -out {output}")
-#
-#
-#rule make_bam_paths_gene:
-#    input:
-#        lambda wildcards: expand(f"output/bam_regions/{wildcards['gene']}/{{sample_id}}.bam", sample_id=sample_ids[sample_info.subclass_label==wildcards["cell_type"]])
-#    output:
-#        "output/bam_paths-{gene}-{cell_type}.txt"
-#    run:
-#        pd.DataFrame(input).to_csv(output[0], "\t", index=False, header=False)
-#
-#
-#rule merge_bams:
-#    input:
-#        "output/bam_paths-{gene}-{cell_type}.txt",
-#        lambda wildcards: expand(f"output/bam_regions/{wildcards['gene']}/{{sample_id}}.bam", sample_id=sample_ids[sample_info.subclass_label==wildcards["cell_type"]])
-#    output:
-#        "output/bam_regions/{gene}/{cell_type}/merged.bam"
-#    threads:
-#        workflow.cores
-#    priority: 10
-#    shell:
-#        "samtools merge --threads {threads} -b {input[0]} {output}"
+rule filter_bam_to_region:
+    input:
+        "output/filtered_bams/{sample_id}.bam"
+    output:
+        temp("output/bam_regions/{gene}/{sample_id}.bam")
+    run:
+        chromosome, start, end = genes_bam_merge[wildcards["gene"]]["region"]
+        #shell(f"bamtools filter -region {chromosome}:{start}..{end} -in {input} -out {output}")
+        shell(f"samtools view -b -o {output} {input} {chromosome}:{start}-{end}")
+
+
+rule make_bam_paths_gene:
+    input:
+        lambda wildcards: expand(f"output/bam_regions/{wildcards['gene']}/{{sample_id}}.bam", sample_id=sample_ids[sample_info.subclass_label==wildcards["cell_type"]])
+    output:
+        "output/bam_paths-{gene}-{cell_type}.txt"
+    run:
+        pd.DataFrame(input).to_csv(output[0], "\t", index=False, header=False)
+
+
+rule merge_bams:
+    input:
+        "output/bam_paths-{gene}-{cell_type}.txt",
+        lambda wildcards: expand(f"output/bam_regions/{wildcards['gene']}/{{sample_id}}.bam", sample_id=sample_ids[sample_info.subclass_label==wildcards["cell_type"]])
+    output:
+        "output/bam_regions/{gene}/{cell_type}/merged.bam"
+    threads:
+        workflow.cores
+    priority: 10
+    shell:
+        "samtools merge --threads {threads} -b {input[0]} {output}"
 #
 #
 #rule make_bam_paths_subclass:
@@ -990,7 +1001,7 @@ rule plot_marker_introns_class:
         'output/diff_spl/class_label/marker_introns_genes.svg',
     run:
         adata_spl = anndata.read_h5ad(input[1])
-        adata_spl.var["prev_id"] = adata_spl.var.index.values
+        adata_spl.var["prev_id"] = np.arange(len(adata_spl.var.index.values))
         adata_spl.var["id"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
         adata_spl.var = adata_spl.var.set_index("id")
 
@@ -1054,28 +1065,31 @@ rule plot_marker_introns_class:
         adata_spl.var.loc[:, "id"] = adata_spl.var.Annotated_str + adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
         adata_spl.var = adata_spl.var.set_index("id")
         print(adata_spl.var.index.values)
+        adata_spl.var.to_csv("output/class_label_marker_introns.txt", "\t")
 
-        g = sc.pl.matrixplot(
-            adata_spl,
-            adata_spl.var.index.values,
-            groupby='Cell type',
-            categories_order=cell_type_order,
-            return_fig=True, vmin=0.0, vmax=1.0,
-            cmap='coolwarm',
-            swap_axes=True, colorbar_title="Mean PSI")
-        #g.legend()
-        #g.legend(loc="upper left")
-        #plt.legend(bbox_to_anchor=(0,1.02,1,0.2), loc="lower left", mode="expand", borderaxespad=0, ncol=3)
+        df = adata_spl.obs.filter(items=["Cell type"])
+        df[adata_spl.var.index.values] = adata_spl.X
+        df = df.groupby("Cell type").mean().loc[cell_type_order]
+        df.index.name = None
+        width,height = 3,3
+        fig, ax = plt.subplots(figsize=(width,height))
+        ax = sns.heatmap(
+            df.T,
+            cmap="coolwarm",
+            vmin=0.0, vmax=1.0,
+            center=0.5,
+            ax=ax,
+            square=True,
+            cbar_kws={'label': 'Mean PSI', "location": "top", "shrink": 0.8},
+            xticklabels=False,
+            yticklabels=1,
+        )
+        plt.xticks(rotation=90)
+        plt.yticks(rotation=0)
+        ax.get_figure().savefig(output[0], bbox_inches='tight')
+        plt.close("all")
 
-        #print(g.get_axes())
-        #handles, labels = g.get_axes()["mainplot_ax"].get_legend_handles_labels()
-        #handles, labels = g.get_axes()["color_legend_ax"].get_legend_handles_labels()
-        #print(handles, labels)
-        #raise Exception("debug")
 
-        plt.tight_layout()
-        g.savefig(output[0], bbox_inches="tight")
-        plt.close()
 
         adata_exp = anndata.read_h5ad(input[0])
         sc.pp.normalize_total(adata_exp, target_sum=1e4)
@@ -1089,20 +1103,30 @@ rule plot_marker_introns_class:
         adata_exp.var = adata_exp.var.set_index("gene_name")
         adata_exp.X = adata_exp.X.toarray()
 
-        g = sc.pl.matrixplot(
-            adata_exp,
-            adata_exp.var.index.values,
-            groupby='Cell type',
-            categories_order=cell_type_order,
-            return_fig=True,
-            #vmin=0.0, vmax=1.0,
-            #cmap='coolwarm',
-            swap_axes=True,
-            colorbar_title="Mean expression"
+        df = adata_exp.obs.filter(items=["Cell type"])
+        df[adata_exp.var.index.values] = adata_exp.X
+        df = df.groupby("Cell type").mean().loc[cell_type_order]
+        df.index.name = None
+        fig, ax = plt.subplots(figsize=(width,height))
+        ax = sns.heatmap(
+            df.T,
+            cmap="viridis",
+            vmin=0.0, vmax=2.2,
+            #robust=True,
+            ax=ax,
+            square=True,
+            #cbar_kws={'label': 'Mean z-score', "location": "top", "shrink": 0.3},
+            #cbar_kws={'label': 'Mean z-score', "location": "left", "shrink": 0.13, "anchor": (1.5, 0.25)},
+            cbar_kws={'label': 'Mean expression', "location": "top", "shrink": 0.8},
+            xticklabels=False,
+            yticklabels=False,
         )
-        plt.tight_layout()
-        g.savefig(output[1], bbox_inches="tight")
-        plt.close()
+        #ax.set_xlabel("Regulator")
+        #ax.set_ylabel("Cell type")
+        plt.xticks(rotation=90)
+        plt.yticks(rotation=0)
+        ax.get_figure().savefig(output[1], bbox_inches='tight')
+        plt.close("all")
 
 
 rule plot_marker_introns_subclass:
@@ -1115,7 +1139,7 @@ rule plot_marker_introns_subclass:
         'output/diff_spl/subclass_label/marker_introns_genes.svg',
     run:
         adata_spl = anndata.read_h5ad(input[1])
-        adata_spl.var["prev_id"] = adata_spl.var.index.values
+        adata_spl.var["prev_id"] = np.arange(len(adata_spl.var.index.values))
         adata_spl.var["id"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
         adata_spl.var = adata_spl.var.set_index("id")
 
@@ -1184,18 +1208,30 @@ rule plot_marker_introns_subclass:
         #adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
         adata_spl.var.loc[:, "id"] = adata_spl.var.Annotated_str + adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
         adata_spl.var = adata_spl.var.set_index("id")
+        adata_spl.var.to_csv("output/subclass_label_marker_introns.txt", "\t")
 
-        g = sc.pl.matrixplot(
-            adata_spl,
-            adata_spl.var.index.values,
-            groupby='Cell type',
-            categories_order=cell_type_order,
-            return_fig=True, vmin=0.0, vmax=1.0,
-            cmap='coolwarm',
-            swap_axes=True, colorbar_title="Mean PSI")
-        plt.tight_layout()
-        g.savefig(output[0], bbox_inches="tight")
-        plt.close()
+        df = adata_spl.obs.filter(items=["Cell type"])
+        df[adata_spl.var.index.values] = adata_spl.X
+        df = df.groupby("Cell type").mean().loc[cell_type_order]
+        df.index.name = None
+        width,height = 3,7
+        fig, ax = plt.subplots(figsize=(width,height))
+        ax = sns.heatmap(
+            df.T,
+            cmap="coolwarm",
+            center=0.5,
+            vmin=0.0, vmax=1.0,
+            ax=ax,
+            square=True,
+            #cbar_kws={'label': 'Mean PSI', "location": "top", "shrink": 0.5},
+            cbar=False,
+            xticklabels=1,
+            yticklabels=1,
+        )
+        plt.xticks(rotation=90)
+        plt.yticks(rotation=0)
+        ax.get_figure().savefig(output[0], bbox_inches='tight')
+        plt.close("all")
 
         adata_exp = anndata.read_h5ad(input[0])
         sc.pp.normalize_total(adata_exp, target_sum=1e4)
@@ -1209,21 +1245,28 @@ rule plot_marker_introns_subclass:
         adata_exp.var = adata_exp.var.set_index("gene_name")
         adata_exp.X = adata_exp.X.toarray()
 
-        g = sc.pl.matrixplot(
-            adata_exp,
-            adata_exp.var.index.values,
-            groupby='Cell type',
-            categories_order=cell_type_order,
-            return_fig=True,
-            #vmin=0.0, vmax=1.0,
-            #cmap='coolwarm',
-            swap_axes=True,
-            colorbar_title="Mean expression"
+        df = adata_exp.obs.filter(items=["Cell type"])
+        df[adata_exp.var.index.values] = adata_exp.X
+        df = df.groupby("Cell type").mean().loc[cell_type_order]
+        df.index.name = None
+        fig, ax = plt.subplots(figsize=(width,height))
+        ax = sns.heatmap(
+            df.T,
+            cmap="viridis",
+            vmin=0.0, vmax=2.2,
+            robust=True,
+            ax=ax,
+            square=True,
+            #cbar_kws={'label': 'Mean expression', "location": "top", "shrink": 0.5},
+            cbar=False,
+            xticklabels=1,
+            yticklabels=False,
         )
-        plt.tight_layout()
-        g.savefig(output[1], bbox_inches="tight")
-        plt.close()
-#
+        plt.xticks(rotation=90)
+        plt.yticks(rotation=0)
+        ax.get_figure().savefig(output[1], bbox_inches='tight')
+        plt.close("all")
+
 #
 #def calculate_classification_metrics(latent, classes, idx, seed=None):
 #    latent = latent[idx]
@@ -2069,3 +2112,18 @@ rule plot_marker_introns_subclass:
 #        sns.histplot(x=cluster_sizes, discrete=True)
 #        plt.xlabel("Cluster size")
 #        plt.savefig(output[0])
+#
+#
+#rule make_intron_ids:
+#    input:
+#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+#        "output/gene_name.txt",
+#    output:
+#        "output/intron_id.tsv",
+#    run:
+#        adata_spl = anndata.read_h5ad(input[0])
+#        adata_spl.var["id"] = np.arange(len(adata_spl.var))
+#        adata_spl.var["coordinates"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
+#        gene_name = pd.read_csv(input[1], "\t", index_col=0)
+#        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+#        adata_spl.var.to_csv(output[0], "\t", index=False, columns=["gene_name", "id", "coordinates"])
