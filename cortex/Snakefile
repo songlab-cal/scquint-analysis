@@ -149,8 +149,9 @@ rule all:
     input:
         #expand("output/bam_regions/Mbnl2/{cell_type}/merged.bam", cell_type=genes_bam_merge["Mbnl2"]["cell_types"]),
         #expand("output/bam_regions/Khdrbs3/{cell_type}/merged.bam", cell_type=genes_bam_merge["Khdrbs3"]["cell_types"]),
-        'output/diff_spl/class_label/marker_introns.svg',
-        'output/diff_spl/subclass_label/marker_introns.svg',
+        #'output/diff_spl/class_label/marker_introns.svg',
+        #'output/diff_spl/subclass_label/marker_introns.svg',
+        "output/intron_coordinates.txt",
         #expand('output/diff_spl/class_label/{class_label}/splicing.clusters.tsv', class_label=["Glutamatergic", "GABAergic"]),
         #'output/diff_spl/null/splicing.clusters.tsv',
         #"output/dimensionality_reduction/all/introns-shared-acceptor/vae_hyperopt/latent.txt",
@@ -2114,16 +2115,35 @@ rule plot_marker_introns_subclass:
 #        plt.savefig(output[0])
 #
 #
-#rule make_intron_ids:
-#    input:
-#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-#        "output/gene_name.txt",
-#    output:
-#        "output/intron_id.tsv",
-#    run:
-#        adata_spl = anndata.read_h5ad(input[0])
-#        adata_spl.var["id"] = np.arange(len(adata_spl.var))
-#        adata_spl.var["coordinates"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
-#        gene_name = pd.read_csv(input[1], "\t", index_col=0)
-#        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
-#        adata_spl.var.to_csv(output[0], "\t", index=False, columns=["gene_name", "id", "coordinates"])
+rule make_intron_ids:
+    input:
+        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+        "output/gene_name.txt",
+    output:
+        "output/intron_id.tsv",
+    run:
+        adata_spl = anndata.read_h5ad(input[0])
+        adata_spl.var["id"] = np.arange(len(adata_spl.var))
+        adata_spl.var["coordinates"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
+        gene_name = pd.read_csv(input[1], "\t", index_col=0)
+        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+        adata_spl.var.to_csv(output[0], "\t", index=False, columns=["gene_name", "id", "coordinates"])
+
+
+rule make_latex_table_intron_coordinates:
+    input:
+        "output/intron_id.tsv",
+        "output/class_label_marker_introns.txt",
+        "output/subclass_label_marker_introns.txt",
+    output:
+        "output/intron_coordinates.txt",
+    run:
+        id_coordinate_mapping = pd.read_csv(input[0], "\t", index_col=1)
+        introns = pd.read_csv(input[1], "\t", index_col=0).index.values.astype(str).ravel().tolist() + pd.read_csv(input[2], "\t", index_col=0).index.values.astype(str).ravel().tolist()
+        introns = [intron.replace('*', '') for intron in introns if "_" in intron]
+        intron_id = [int(intron.split("_")[1]) for intron in introns]
+        table = pd.DataFrame({"Intron id": introns})
+        print(table)
+        table["Intron coordinate"] = id_coordinate_mapping.loc[intron_id].coordinates.values
+        print(table)
+        table.sort_values("Intron id").to_latex(output[0], index=False)

@@ -201,6 +201,7 @@ features = ["all_exp", "tf_exp", "tf_exp_spl", "tf_spl",]
 
 rule all:
     input:
+        #"output/intron_coordinates.txt",
         #"output/dendrogram/exp.pdf",
         #"output/dendrogram/spl.pdf",
         #"output/cell_type_classification/Mammary_Gland/basal_cell/variables.tsv",
@@ -215,7 +216,7 @@ rule all:
 #        expand("output/bam_regions/Smarca4/{cell_type}/merged.bam", cell_type=genes_bam_merge["Smarca4"]["cell_types"]),
         #"output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.tsv",
         #"output/differential_splicing/new_clusters/Liver/hepatocyte/marker_introns.tsv",
-        "output/differential_splicing/marrow_b/marker_introns_trajectory_spl.svg",
+        #"output/differential_splicing/marrow_b/marker_introns_trajectory_spl.svg",
         #expand('output/differential_splicing/marrow_b/{cell_type}/marker_introns.tsv', cell_type=cell_type_order),
         #expand("output/bam_regions/Echdc2/{cell_type}/merged.bam", cell_type=genes_bam_merge["Echdc2"]["cell_types"]),
         #"output/plots/hepatocyte_new_clusters/",
@@ -265,7 +266,7 @@ rule all:
         #expand("output/plots/{intron}.svg", intron=introns_to_plot),
         #expand("output/comparison/marrow_b/{label}.svg", label=labels),
         #"output/comparison/cortex_3_9_M/cell_ontology_class.svg",
-        #"output/comparison/mg_3_38_F/cell_ontology_class.svg",
+        "output/comparison/mg_3_38_F/cell_ontology_class.svg",
         #"output/comparison/mg_3_39_F/cell_ontology_class.svg",
         #expand("output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_all.svg", tissue=pd.unique([t for t, ct in tissue_cell_type_pairs])),
         #expand("output/coverage_track/mg_basal_individual_plate/3_38_F/{plate}/coverage.bw", plate=["B002433", "B002432", "B002438"]),
@@ -1162,134 +1163,132 @@ rule all:
 #        plt.savefig(output[1], bbox_inches='tight')
 #
 #
-#rule compare_latent_custom_plot:
-#    input:
-#        #expand("output/dimensionality_reduction/mg/{quantification}/pca_50_10/latent.txt", quantification=quantifications_mg_individual_expanded),
-#        "output/dimensionality_reduction/mg/gene-expression/pca_50_10/latent.txt",
-#        "output/dimensionality_reduction/mg/kallisto/vae_30/latent.txt",
-#        "output/dimensionality_reduction/mg/bins/vae_30/latent.txt",
-#        "output/dimensionality_reduction/mg/exons/vae_30/latent.txt",
-#        "output/dimensionality_reduction/mg/introns-gene/vae_30/latent.txt",
-#        "output/dimensionality_reduction/mg/leafcutter/vae_30/latent.txt",
-#        "output/dimensionality_reduction/mg/introns-shared-acceptor/vae_30/latent.txt",
-#        #"output/dimensionality_reduction/mg/leafcutter/pca_30_10/latent.txt",
-#        #"output/dimensionality_reduction/mg/leafcutter/vae_30/latent.txt",
-#        #"output/dimensionality_reduction/mg/leafcutter/vae_50/latent.txt",
-#        #"output/dimensionality_reduction/mg/introns-shared-acceptor/pca_30_10/latent.txt",
-#        #"output/dimensionality_reduction/mg/introns-shared-acceptor/vae_30/latent.txt",
-#        #"output/dimensionality_reduction/mg/introns-shared-acceptor/vae_50/latent.txt",
-#        #"output/dimensionality_reduction/mg/leafcutter/vae_100/latent.txt",
-#    output:
-#        #"output/comparison/mg_3_38_F/cell_ontology_class.svg",
-#        "output/comparison/mg_{individual}/cell_ontology_class.svg",
-#        "output/comparison/mg_{individual}/plate.svg",
-#    run:
-#        obs = sample_info[(sample_info.tissue=="Mammary_Gland")]
-#        obs = obs.sort_index()
-#        idx = np.where((obs["mouse.id"]==wildcards["individual"]) & (obs.cell_ontology_class!="endothelial cell"))[0]
-#        obs = obs.iloc[idx]
-#        obs["Cell type"] = obs.cell_ontology_class
-#        obs["Plate ID"] = obs.plate_id
-#        dfs = []
-#        #names = ["Leafcutter-PCA", "LeafCutter-VAE", "LeafCutter-Ours-PCA", "LeafCutter-Ours-VAE", "SharedAcceptor-PCA", "SharedAcceptor-VAE"]
-#        #names = ["Leafcutter", "SharedAcceptor", "AnnotatedSE", "AnnotatedSE-SharedAcceptor", "AnnotatedSE-SharedDonor"]
-#        names = ["Gene expression", "kallisto", "ODEGR-NMF", "DEXSeq", "DESJ", "LeafCutter", "scQuint"]
-#        #names = ["LeafCutter-VAE-30", "LeafCutter-VAE-50", "LeafCutter-VAE-100"]
-#        #names = ["LeafCutter-VAE-30", "LeafCutter-VAE-50", "scQuint-VAE-30", "scQuint-VAE-50"]
-#        #names = ["LeafCutter-PCA", "LeafCutter-VAE", "scQuint-PCA", "scQuint-VAE"]
-#        for name, input_path in zip(names, input):
-#            print(name)
-#            #if name == "gene-expression":
-#            #    #name = "Gene expression \n (featureCounts)"
-#            #    name = "Gene expression"
-#            #if name == "kallisto":
-#            #    pass
-#            #    #name = "Isoform proportions \n (kallisto)"
-#            #if name == "bins":
-#            #    #name = "100-bp bin cov. proportions \n (ODEGR-NMF)"
-#            #    name = "ODEGR-NMF"
-#            #if name == "introns-shared-acceptor":
-#            #    #name = "Alt. intron proportions \n (scQuint)"
-#            #    name = "scQuint"
-#            #if name == "introns-transitive":
-#            #    name = "LeafCutter (ours)"
-#            #if name == "introns-gene":
-#            #    name = "DESJ"
-#            #if name == "SE":
-#            #    name = "Skipped exons"
-#            #if name == "exons":
-#            #    name = "DEXSeq"
-#            df = obs.copy()
-#            latent = np.loadtxt(input_path)
-#            latent = latent[idx]
-#            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
-#            df["UMAP 1"] = proj[:, 0]
-#            df["UMAP 2"] = proj[:, 1]
-#            df["Quantification"] = name
-#            dfs.append(df)
-#        df = pd.concat(dfs)
-#        df = df.replace("luminal epithelial cell of mammary gland", "luminal epithelial")
-#        df = df.replace("basal cell", "basal")
-#        df = df.replace("stromal cell", "stromal")
-#        g = sns.relplot(
-#            data=df, x="UMAP 1", y="UMAP 2",
-#            row="Quantification",
-#            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
-#            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter"],
-#            row_order=names,
-#            hue="Cell type",
-#            kind="scatter",
-#            facet_kws={'sharey': False, 'sharex': False},
-#            height=2.0, palette="tab10", edgecolor="none", s=8,
-#            aspect=0.8,
-#        )
-#        g.set_titles(row_template="{row_name}")
-#        #g.fig.subplots_adjust(hspace=0.1)
-#        for ax in g.axes.flat:
-#            ax.set_xticks([])
-#            ax.set_yticks([])
-#            ax.set_xlabel("UMAP 1")
-#            ax.set_ylabel("UMAP 2")
-#        sns.despine()
-#        leg = g._legend
-#        leg.set_bbox_to_anchor([0.5, 1.0])
-#        leg._loc = 8
-#        plt.tight_layout()
-#        plt.savefig(output[0], bbox_inches='tight')
-#        plt.close()
-#        g = sns.relplot(
-#            data=df, x="UMAP 1", y="UMAP 2",
-#            row="Quantification",
-#            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
-#            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter"],
-#            row_order=names,
-#            hue="Plate ID",
-#            kind="scatter",
-#            facet_kws={'sharey': False, 'sharex': False, "margin_titles": False},
-#            height=2.0, palette=["C3", "C8", "C9"], edgecolor="none", s=8,
-#            aspect=0.95,
-#            #legend=False,
-#        )
-#        g.set_titles(row_template="{row_name}")
-#        #g.fig.subplots_adjust(hspace=0.1)
-#        for ax in g.axes.flat:
-#            ax.set_xticks([])
-#            ax.set_yticks([])
-#            ax.set_xlabel("UMAP 1")
-#            ax.set_ylabel("UMAP 2")
-#        sns.despine()
-#        leg = g._legend
-#        leg.set_bbox_to_anchor([0.5, 1.0])
-#        leg._loc = 8
-#        #plt.savefig(output[1])
-#        #plt.savefig(output[1], bbox_extra_artists=(leg,), bbox_inches='tight')
-#        #plt.savefig(output[1], bbox_extra_artists=(leg,))
-#        #g.get_figure().savefig(output[1], bbox_inches='tight')
-#        #plt.subplots_adjust(top=0.95, right=0.95)
-#        #g.savefig(output[1], bbox_inches='tight', bbox_extra_artists=(leg,))
-#        plt.tight_layout()
-#        plt.savefig(output[1], bbox_inches='tight')
-#        plt.close()
+rule compare_latent_custom_plot:
+    input:
+        #expand("output/dimensionality_reduction/mg/{quantification}/pca_50_10/latent.txt", quantification=quantifications_mg_individual_expanded),
+        "output/dimensionality_reduction/mg/gene-expression/pca_50_10/latent.txt",
+        "output/dimensionality_reduction/mg/kallisto/vae_30/latent.txt",
+        "output/dimensionality_reduction/mg/bins/vae_30/latent.txt",
+        "output/dimensionality_reduction/mg/exons/vae_30/latent.txt",
+        "output/dimensionality_reduction/mg/introns-gene/vae_30/latent.txt",
+        "output/dimensionality_reduction/mg/leafcutter/vae_30/latent.txt",
+        "output/dimensionality_reduction/mg/introns-shared-acceptor/vae_30/latent.txt",
+        #"output/dimensionality_reduction/mg/leafcutter/pca_30_10/latent.txt",
+        #"output/dimensionality_reduction/mg/leafcutter/vae_30/latent.txt",
+        #"output/dimensionality_reduction/mg/leafcutter/vae_50/latent.txt",
+        #"output/dimensionality_reduction/mg/introns-shared-acceptor/pca_30_10/latent.txt",
+        #"output/dimensionality_reduction/mg/introns-shared-acceptor/vae_30/latent.txt",
+        #"output/dimensionality_reduction/mg/introns-shared-acceptor/vae_50/latent.txt",
+        #"output/dimensionality_reduction/mg/leafcutter/vae_100/latent.txt",
+    output:
+        #"output/comparison/mg_3_38_F/cell_ontology_class.svg",
+        "output/comparison/mg_{individual}/cell_ontology_class.svg",
+        "output/comparison/mg_{individual}/plate.svg",
+    run:
+        obs = sample_info[(sample_info.tissue=="Mammary_Gland")]
+        obs = obs.sort_index()
+        idx = np.where((obs["mouse.id"]==wildcards["individual"]) & (obs.cell_ontology_class!="endothelial cell"))[0]
+        obs = obs.iloc[idx]
+        obs["Cell type"] = obs.cell_ontology_class
+        obs["Plate ID"] = obs.plate_id
+        dfs = []
+        #names = ["Leafcutter-PCA", "LeafCutter-VAE", "LeafCutter-Ours-PCA", "LeafCutter-Ours-VAE", "SharedAcceptor-PCA", "SharedAcceptor-VAE"]
+        #names = ["Leafcutter", "SharedAcceptor", "AnnotatedSE", "AnnotatedSE-SharedAcceptor", "AnnotatedSE-SharedDonor"]
+        names = ["Gene expression", "kallisto", "ODEGR-NMF", "DEXSeq", "DESJ", "LeafCutter", "scQuint"]
+        #names = ["LeafCutter-VAE-30", "LeafCutter-VAE-50", "LeafCutter-VAE-100"]
+        #names = ["LeafCutter-VAE-30", "LeafCutter-VAE-50", "scQuint-VAE-30", "scQuint-VAE-50"]
+        #names = ["LeafCutter-PCA", "LeafCutter-VAE", "scQuint-PCA", "scQuint-VAE"]
+        for name, input_path in zip(names, input):
+            print(name)
+            #if name == "gene-expression":
+            #    #name = "Gene expression \n (featureCounts)"
+            #    name = "Gene expression"
+            #if name == "kallisto":
+            #    pass
+            #    #name = "Isoform proportions \n (kallisto)"
+            #if name == "bins":
+            #    #name = "100-bp bin cov. proportions \n (ODEGR-NMF)"
+            #    name = "ODEGR-NMF"
+            #if name == "introns-shared-acceptor":
+            #    #name = "Alt. intron proportions \n (scQuint)"
+            #    name = "scQuint"
+            #if name == "introns-transitive":
+            #    name = "LeafCutter (ours)"
+            #if name == "introns-gene":
+            #    name = "DESJ"
+            #if name == "SE":
+            #    name = "Skipped exons"
+            #if name == "exons":
+            #    name = "DEXSeq"
+            df = obs.copy()
+            latent = np.loadtxt(input_path)
+            latent = latent[idx]
+            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
+            df["UMAP 1"] = proj[:, 0]
+            df["UMAP 2"] = proj[:, 1]
+            df["Quantification"] = name
+            dfs.append(df)
+        df = pd.concat(dfs)
+        df = df.replace("luminal epithelial cell of mammary gland", "luminal\nepithelial")
+        df = df.replace("basal cell", "basal")
+        df = df.replace("stromal cell", "stromal")
+        g = sns.relplot(
+            data=df, x="UMAP 1", y="UMAP 2",
+            row="Quantification",
+            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
+            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter"],
+            row_order=names,
+            hue="Cell type",
+            kind="scatter",
+            facet_kws={'sharey': False, 'sharex': False},
+            height=1.4, palette="tab10", edgecolor="none", s=6,
+            aspect=1.4,
+        )
+        g.set_titles(row_template="{row_name}")
+        g.fig.subplots_adjust(hspace=0.7)
+        for ax in g.axes.flat:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_xlabel("UMAP 1")
+            ax.set_ylabel("UMAP 2")
+        sns.despine()
+        #leg = g._legend
+        #leg.set_bbox_to_anchor([0.5, 1.0])
+        #leg._loc = 8
+        plt.savefig(output[0], bbox_inches='tight')
+        plt.close()
+        g = sns.relplot(
+            data=df, x="UMAP 1", y="UMAP 2",
+            row="Quantification",
+            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter", "Skipped exons", "scQuint"],
+            #row_order=["Gene expression", "kallisto", "DEXSeq", "ODEGR-NMF", "DESJ", "LeafCutter"],
+            row_order=names,
+            hue="Plate ID",
+            kind="scatter",
+            facet_kws={'sharey': False, 'sharex': False, "margin_titles": False},
+            height=1.4, palette=["C3", "C8", "C9"], edgecolor="none", s=6,
+            aspect=1.4,
+            #legend=False,
+        )
+        g.set_titles(row_template="{row_name}")
+        g.fig.subplots_adjust(hspace=0.7)
+        for ax in g.axes.flat:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_xlabel("UMAP 1")
+            ax.set_ylabel("UMAP 2")
+        sns.despine()
+        #leg = g._legend
+        #leg.set_bbox_to_anchor([0.5, 1.0])
+        #leg._loc = 8
+        #plt.savefig(output[1])
+        #plt.savefig(output[1], bbox_extra_artists=(leg,), bbox_inches='tight')
+        #plt.savefig(output[1], bbox_extra_artists=(leg,))
+        #g.get_figure().savefig(output[1], bbox_inches='tight')
+        #plt.subplots_adjust(top=0.95, right=0.95)
+        #g.savefig(output[1], bbox_inches='tight', bbox_extra_artists=(leg,))
+        plt.savefig(output[1], bbox_inches='tight')
+        plt.close()
 #
 #
 #rule dimensionality_reduction_marrow_b_expression:
@@ -3396,7 +3395,8 @@ rule plot_marker_introns_trajectory_marrow_b:
         adata_exp = anndata.read_h5ad(input[0])
 
         adata_spl = anndata.read_h5ad(input[1])
-        adata_spl.var["prev_id"] = adata_spl.var.index.values
+        #adata_spl.var["prev_id"] = adata_spl.var.index.values
+        adata_spl.var["prev_id"] = np.arange(len(adata_spl.var))
         adata_spl.var["id"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
         adata_spl.var = adata_spl.var.set_index("id")
 
@@ -3461,6 +3461,7 @@ rule plot_marker_introns_trajectory_marrow_b:
         adata_spl.var.loc[:, "id"] = adata_spl.var.gene_name.astype(str) + "_" + adata_spl.var.prev_id.astype(str)
         adata_spl.var = adata_spl.var.set_index("id")
         introns = adata_spl.var.index.values
+        pd.DataFrame(introns).to_csv("output/marker_introns.txt", index=False, header=False)
 
         obs = adata_spl.obs
         #obs.loc[:, gene_names] = adata_exp.X
@@ -3839,3 +3840,36 @@ rule cell_type_classification_variable_selection:
 
         #adata.var["support"] = support
         #print(adata.var[adata.var.support].feature_type.value_counts())
+
+
+rule make_intron_ids:
+    input:
+        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+        "output/gene_name.txt",
+    output:
+        "output/intron_id.tsv",
+    run:
+        adata_spl = anndata.read_h5ad(input[0])
+        adata_spl.var["id"] = np.arange(len(adata_spl.var))
+        adata_spl.var["coordinates"] = adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
+        gene_name = pd.read_csv(input[1], "\t", index_col=0)
+        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+        adata_spl.var.to_csv(output[0], "\t", index=False, columns=["gene_name", "id", "coordinates"])
+
+
+rule make_latex_table_intron_coordinates:
+    input:
+        "output/intron_id.tsv",
+        "output/marker_introns.txt",
+    output:
+        "output/intron_coordinates.txt",
+    run:
+        id_coordinate_mapping = pd.read_csv(input[0], "\t", index_col=1)
+        introns = pd.read_csv(input[1], header=None).values.astype(str).ravel().tolist()
+        introns = [intron.replace('*', '') for intron in introns if "_" in intron]
+        intron_id = [int(intron.split("_")[1]) for intron in introns]
+        table = pd.DataFrame({"Intron id": introns})
+        print(table)
+        table["Intron coordinate"] = id_coordinate_mapping.loc[intron_id].coordinates.values
+        print(table)
+        table.sort_values("Intron id").to_latex(output[0], index=False)
