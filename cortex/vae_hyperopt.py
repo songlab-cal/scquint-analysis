@@ -6,7 +6,7 @@ import optuna
 import pandas as pd
 import torch
 
-from spliceVI.dimensionality_reduction import Dataset, VAE, UnsupervisedTrainer, Posterior
+from scquint.dimensionality_reduction import Dataset, VAE, UnsupervisedTrainer, Posterior
 from scquint.utils import filter_min_cells_per_feature, group_normalize
 
 input_path = "output/quantification/introns-shared-acceptor/adata_annotated.h5ad"
