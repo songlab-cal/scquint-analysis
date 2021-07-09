@@ -151,7 +151,7 @@ rule all:
         #expand("output/bam_regions/Khdrbs3/{cell_type}/merged.bam", cell_type=genes_bam_merge["Khdrbs3"]["cell_types"]),
         #'output/diff_spl/class_label/marker_introns.svg',
         #'output/diff_spl/subclass_label/marker_introns.svg',
-        "output/intron_coordinates.txt",
+        #"output/intron_coordinates.txt",
         #expand('output/diff_spl/class_label/{class_label}/splicing.clusters.tsv', class_label=["Glutamatergic", "GABAergic"]),
         #'output/diff_spl/null/splicing.clusters.tsv',
         #"output/dimensionality_reduction/all/introns-shared-acceptor/vae_hyperopt/latent.txt",
@@ -176,7 +176,7 @@ rule all:
         #"output/comparison/gaba_subset/subclass_label.svg",
         #"output/quantification/SE-shared-donor/adata_annotated.h5ad",
         #"output/comparison/gaba_subset/classification_results_plots/",
-        #expand('output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.significant.tsv', subclass_label=subclass_labels),
+        expand('output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.significant.tsv', subclass_label=subclass_labels),
         #expand('output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.tsv', subclass_label=subclass_labels),
         #expand('output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.tsv', subclass_label=["Pvalb"]),
         #"output/adata_cellxgene.h5ad",
@@ -592,6 +592,10 @@ rule filter_diff_spl_significant:
         #coordinates = diff_spl_intron.groupby("cluster").agg({"chromosome": "first", "start": "unique", "end": "unique"})
         #diff_spl_cluster = diff_spl_cluster.merge(coordinates, how="left", left_index=True, right_index=True)
 
+        diff_spl_intron["coordinates"] = diff_spl_intron.chromosome + ":" + diff_spl_intron.start.astype(str) + "-" + diff_spl_intron.end.astype(str)
+        coordinates = diff_spl_intron.groupby("cluster").coordinates.unique()
+        diff_spl_cluster = diff_spl_cluster.merge(coordinates, how="left", left_index=True, right_index=True)
+
         print(diff_spl_cluster.Annotated.value_counts())
         def get_diff_exp_rank(row_cluster):
             try:
@@ -625,9 +629,10 @@ rule filter_diff_spl_significant:
         print(diff_spl_cluster.Region.value_counts())
         diff_spl_cluster.max_abs_delta_psi = diff_spl_cluster.max_abs_delta_psi.round(decimals=3)
 
+        np.set_printoptions(linewidth=100000)
         diff_spl_cluster.to_csv(
             output[0], "\t",
-            columns=["gene_id", "gene_name", "p_value", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank"],
+            columns=["gene_id", "gene_name", "p_value", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "coordinates"],
             #columns=["gene_id", "gene_name", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "p_value", "chromosome", "start", "end"],
         )
 #

@@ -256,7 +256,7 @@ rule all:
         #"output/quantification/SE/adata_annotated.h5ad",
         #"output/comparison/mg_3_38_F/classification_results_plots/",
         #"output/comparison/cortex_3_9_M/classification_results_plots/",
-        #expand("output/differential_splicing/tissue_cell_type/{tct[0]}/{tct[1]}/splicing.clusters.tsv", tct=tissue_cell_type_pairs),
+        expand("output/differential_splicing/tissue_cell_type/{tct[0]}/{tct[1]}/splicing.clusters.significant.tsv", tct=tissue_cell_type_pairs),
         #expand("output/differential_splicing/tissue_cell_type/{tct[0]}/{tct[1]}/summary.tsv", tct=tissue_cell_type_pairs),
         #"output/adata_cellxgene.h5ad",
         #expand("output/coverage_track/tct/{tct[0]}/{tct[1]}/coverage.bw", tct=tissue_cell_type_pairs_including_singletons),
@@ -266,7 +266,7 @@ rule all:
         #expand("output/plots/{intron}.svg", intron=introns_to_plot),
         #expand("output/comparison/marrow_b/{label}.svg", label=labels),
         #"output/comparison/cortex_3_9_M/cell_ontology_class.svg",
-        "output/comparison/mg_3_38_F/cell_ontology_class.svg",
+        #"output/comparison/mg_3_38_F/cell_ontology_class.svg",
         #"output/comparison/mg_3_39_F/cell_ontology_class.svg",
         #expand("output/differential_splicing/tissue_cell_type/{tissue}/merged_significant_all.svg", tissue=pd.unique([t for t, ct in tissue_cell_type_pairs])),
         #expand("output/coverage_track/mg_basal_individual_plate/3_38_F/{plate}/coverage.bw", plate=["B002433", "B002432", "B002438"]),
@@ -1030,82 +1030,86 @@ rule all:
 #        res.to_csv(output[0], "\t")
 #
 #
-#rule filter_diff_spl_significant:
-#    input:
-#        'output/{anything}/expression.tsv',
-#        'output/{anything}/splicing.clusters.tsv',
-#        'output/{anything}/splicing.introns.tsv',
-#        "output/gene_cds.txt",
-#        "output/gene_name.txt",
-#    output:
-#        'output/{anything}/splicing.clusters.significant.tsv',
-#    run:
-#        diff_exp = pd.read_csv(input[0], "\t", index_col=0)
-#        diff_spl_cluster = pd.read_csv(input[1], "\t", index_col=0)
-#        diff_spl_intron = pd.read_csv(input[2], "\t", index_col=0)
-#        gene_cds = pd.read_csv(input[3], "\t", index_col=0)
-#        gene_name = pd.read_csv(input[4], "\t", index_col=0)
-#
-#        assert(set(diff_spl_cluster.index.values) == set(diff_spl_intron.cluster.unique()))
-#
-#        print(diff_spl_cluster.shape)
-#        diff_spl_cluster = diff_spl_cluster[
-#            ((diff_spl_cluster.p_value_adj <= config["fdr"]) &
-#             (diff_spl_cluster.max_abs_delta_psi >= config["min_abs_delta_psi"]))
-#        ]
-#        print(diff_spl_cluster.shape)
-#        diff_spl_cluster = diff_spl_cluster.merge(gene_name, how="left", left_on="gene_id", right_index=True)
-#        print(diff_spl_cluster.shape)
-#        def max_abs_lfc_psi_unannotated(row_cluster):
-#            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
-#            return (introns.abs_lfc_psi * (~introns.annotated).astype(int)).max()
-#        diff_spl_cluster["max_abs_lfc_psi_unannotated"] = diff_spl_cluster.apply(max_abs_lfc_psi_unannotated, axis=1)
-#        def max_abs_delta_psi_unannotated(row_cluster):
-#            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
-#            return (introns.abs_delta_psi * (~introns.annotated).astype(int)).max()
-#        diff_spl_cluster["max_abs_delta_psi_unannotated"] = diff_spl_cluster.apply(max_abs_delta_psi_unannotated, axis=1)
-#        diff_spl_cluster["Annotated"] = diff_spl_cluster.max_abs_delta_psi_unannotated < config["min_abs_delta_psi"]
-#
-#        #coordinates = diff_spl_intron.groupby("cluster").agg({"chromosome": "first", "start": "unique", "end": "unique"})
-#        #diff_spl_cluster = diff_spl_cluster.merge(coordinates, how="left", left_index=True, right_index=True)
-#
-#        print(diff_spl_cluster.Annotated.value_counts())
-#        def get_diff_exp_rank(row_cluster):
-#            try:
-#                return diff_exp.loc[row_cluster.gene_id].ranking
-#            except KeyError:
-#                return np.nan
-#        diff_spl_cluster["diff_exp_rank"] = diff_spl_cluster.apply(get_diff_exp_rank, axis=1)
-#        def check_region(row_cluster):
-#            try:
-#                cds = gene_cds.loc[row_cluster.gene_id]
-#            except KeyError:
-#                return "Non-coding"
-#            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
-#            cluster_start = introns.start.min()
-#            cluster_end = introns.end.max()
-#            if cds.strand == "+":
-#                if cluster_start < cds.start:
-#                    return "5' UTR"
-#                if cluster_start < cds.end:
-#                    return "CDS"
-#                return "3' UTR"
-#            elif cds.strand == "-":
-#                if cluster_start < cds.start:
-#                    return "3' UTR"
-#                if cluster_start < cds.end:
-#                    return "CDS"
-#                return "5' UTR"
-#            else:
-#                raise Exception("strand not implemented")
-#        diff_spl_cluster["Region"] = diff_spl_cluster.apply(check_region, axis=1)
-#        diff_spl_cluster.max_abs_delta_psi = diff_spl_cluster.max_abs_delta_psi.round(decimals=3)
-#
-#        diff_spl_cluster.to_csv(
-#            output[0], "\t",
-#            #columns=["gene_id", "gene_name", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "p_value", "chromosome", "start", "end"],
-#            columns=["gene_id", "gene_name", "p_value", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank"],
-#        )
+rule filter_diff_spl_significant:
+    input:
+        'output/{anything}/expression.tsv',
+        'output/{anything}/splicing.clusters.tsv',
+        'output/{anything}/splicing.introns.tsv',
+        "output/gene_cds.txt",
+        "output/gene_name.txt",
+    output:
+        'output/{anything}/splicing.clusters.significant.tsv',
+    run:
+        diff_exp = pd.read_csv(input[0], "\t", index_col=0)
+        diff_spl_cluster = pd.read_csv(input[1], "\t", index_col=0)
+        diff_spl_intron = pd.read_csv(input[2], "\t", index_col=0)
+        gene_cds = pd.read_csv(input[3], "\t", index_col=0)
+        gene_name = pd.read_csv(input[4], "\t", index_col=0)
+
+        assert(set(diff_spl_cluster.index.values) == set(diff_spl_intron.cluster.unique()))
+
+        print(diff_spl_cluster.shape)
+        diff_spl_cluster = diff_spl_cluster[
+            ((diff_spl_cluster.p_value_adj <= config["fdr"]) &
+             (diff_spl_cluster.max_abs_delta_psi >= config["min_abs_delta_psi"]))
+        ]
+        print(diff_spl_cluster.shape)
+        diff_spl_cluster = diff_spl_cluster.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+        print(diff_spl_cluster.shape)
+        def max_abs_lfc_psi_unannotated(row_cluster):
+            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
+            return (introns.abs_lfc_psi * (~introns.annotated).astype(int)).max()
+        diff_spl_cluster["max_abs_lfc_psi_unannotated"] = diff_spl_cluster.apply(max_abs_lfc_psi_unannotated, axis=1)
+        def max_abs_delta_psi_unannotated(row_cluster):
+            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
+            return (introns.abs_delta_psi * (~introns.annotated).astype(int)).max()
+        diff_spl_cluster["max_abs_delta_psi_unannotated"] = diff_spl_cluster.apply(max_abs_delta_psi_unannotated, axis=1)
+        diff_spl_cluster["Annotated"] = diff_spl_cluster.max_abs_delta_psi_unannotated < config["min_abs_delta_psi"]
+
+        #coordinates = diff_spl_intron.groupby("cluster").agg({"chromosome": "first", "start": "unique", "end": "unique"})
+        #diff_spl_cluster = diff_spl_cluster.merge(coordinates, how="left", left_index=True, right_index=True)
+        diff_spl_intron["coordinates"] = diff_spl_intron.chromosome + ":" + diff_spl_intron.start.astype(str) + "-" + diff_spl_intron.end.astype(str)
+        coordinates = diff_spl_intron.groupby("cluster").coordinates.unique()
+        diff_spl_cluster = diff_spl_cluster.merge(coordinates, how="left", left_index=True, right_index=True)
+
+        print(diff_spl_cluster.Annotated.value_counts())
+        def get_diff_exp_rank(row_cluster):
+            try:
+                return diff_exp.loc[row_cluster.gene_id].ranking
+            except KeyError:
+                return np.nan
+        diff_spl_cluster["diff_exp_rank"] = diff_spl_cluster.apply(get_diff_exp_rank, axis=1)
+        def check_region(row_cluster):
+            try:
+                cds = gene_cds.loc[row_cluster.gene_id]
+            except KeyError:
+                return "Non-coding"
+            introns = diff_spl_intron[diff_spl_intron.cluster==row_cluster.name]
+            cluster_start = introns.start.min()
+            cluster_end = introns.end.max()
+            if cds.strand == "+":
+                if cluster_start < cds.start:
+                    return "5' UTR"
+                if cluster_start < cds.end:
+                    return "CDS"
+                return "3' UTR"
+            elif cds.strand == "-":
+                if cluster_start < cds.start:
+                    return "3' UTR"
+                if cluster_start < cds.end:
+                    return "CDS"
+                return "5' UTR"
+            else:
+                raise Exception("strand not implemented")
+        diff_spl_cluster["Region"] = diff_spl_cluster.apply(check_region, axis=1)
+        diff_spl_cluster.max_abs_delta_psi = diff_spl_cluster.max_abs_delta_psi.round(decimals=3)
+
+        np.set_printoptions(linewidth=100000)
+        diff_spl_cluster.to_csv(
+            output[0], "\t",
+            #columns=["gene_id", "gene_name", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "p_value", "chromosome", "start", "end"],
+            columns=["gene_id", "gene_name", "p_value", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "coordinates"],
+        )
 #
 #
 #rule merge_significant:
