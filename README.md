@@ -1,5 +1,9 @@
 # Alternative splicing analysis of scRNA-seq datasets with [scQuint](https://github.com/songlab-cal/scquint)
 
+[Brief tutorial on exploration with interactive browsers:](https://youtu.be/DOpvL-FpYsk)
+
+[![Brief tutorial on exploration with interactive browsers](https://user-images.githubusercontent.com/5766420/125173213-fd78b600-e172-11eb-9158-8bc4af80f770.png)](https://youtu.be/DOpvL-FpYsk)
+
 ## Tabula Muris
 Data source: Tabula Muris Consortium. "Single-cell transcriptomics of 20 mouse organs creates a Tabula Muris." Nature 562.7727 (2018): 367-372.
 
