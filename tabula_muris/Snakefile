@@ -24,6 +24,7 @@ UMAP = umap.UMAP
 from textwrap import wrap
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib import ticker
 import seaborn as sns
 
 from scquint.differential_splicing import run_differential_splicing
@@ -201,9 +202,10 @@ features = ["all_exp", "tf_exp", "tf_exp_spl", "tf_spl",]
 
 rule all:
     input:
-        expand('output/differential_splicing/tissue_cell_type/{tissue}/marker_introns.svg', tissue=[t for t,ct in tissue_cell_type_pairs if t != "Kidney"]),
+        #expand('output/differential_splicing/tissue_cell_type/{tissue}/marker_introns.svg', tissue=[t for t,ct in tissue_cell_type_pairs if t != "Kidney"]),
         #'output/differential_splicing/tissue_cell_type/Pancreas/marker_introns.svg',
         #'output/differential_splicing/tissue_cell_type/Marrow/marker_introns.svg',
+        #'output/differential_splicing/tissue_cell_type/Tongue/marker_introns.svg',
         #'output/differential_splicing/tissue_cell_type/Brain_Non-Myeloid/marker_introns.svg',
         #'output/differential_splicing/tissue_cell_type/Heart/marker_introns.svg',
         #'output/differential_splicing/tissue_cell_type/Large_Intestine/marker_introns.svg',
@@ -217,6 +219,8 @@ rule all:
         #expand("output/dendrogram/all_spl-TRUE-{features2}-{scale2}/entanglement.txt", features2=["sf_exp", "sf_spl", "sf_exp_spl",], scale2=["TRUE"]),
         #expand("output/dendrogram/all_spl-TRUE-{features2}-{scale2}/entanglement.txt", features2=["sf_exp", "sf_spl", "sf_exp_spl"], scale2=["TRUE", "FALSE"])
         #expand("output/dendrogram/{features}/features.tsv", features=features),
+        #expand("output/dendrogram/{features}/features.tsv", features=["gene-expression/pca_40", "introns-shared-acceptor/vae_hyperopt"]),
+        "output/dendrogram/gene-expression/pca_40_vs_introns-shared-acceptor/vae_hyperopt/entanglement.txt",
         #"output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg",
         #"output/differential_splicing/marrow_b/tf_Foxp1_trajectory.svg",
         #"output/differential_splicing/marrow_b/tf_Smarca4_trajectory.svg",
@@ -1774,16 +1778,18 @@ rule plot_marker_introns_tissue:
         df[adata_spl.var.index.values] = adata_spl.X
         df = df.groupby("cell_type").mean().loc[cell_types]
         df.index.name = None
-        #width,height = 4, 8
-        #fig, ax = plt.subplots(figsize=(width,height))
+        df.index = df.index.str.replace("_", " ")
+        width,height = np.array([0.5, 1.5]) * 0.7 * len(cell_types)
+        fig, ax = plt.subplots(figsize=(width,height))
         ax = sns.heatmap(
             df.T,
             cmap="coolwarm",
             center=0.5,
             vmin=0.0, vmax=1.0,
-            #ax=ax,
+            ax=ax,
             square=True,
-            cbar_kws={'label': 'Mean PSI', "location": "top", "shrink": 0.2},
+            #cbar_kws={'label': 'Mean PSI', "location": "top", "shrink": 0.2},
+            cbar_kws={'label': 'Mean PSI', "location": "top", "aspect": 10},
             #cbar=False,
             xticklabels=1,
             yticklabels=1,
@@ -1809,19 +1815,27 @@ rule plot_marker_introns_tissue:
         df[adata_exp.var.index.values] = adata_exp.X
         df = df.groupby("cell_type").mean().loc[cell_types]
         df.index.name = None
-        #fig, ax = plt.subplots(figsize=(width,height))
+        df.index = df.index.str.replace("_", " ")
+        fig, ax = plt.subplots(figsize=(width,height))
         ax = sns.heatmap(
             df.T,
             cmap="viridis",
             robust=True,
-            #ax=ax,
+            ax=ax,
             square=True,
-            cbar_kws={'label': 'Mean expression', "location": "top", "shrink": 0.2},
+            #cbar_kws={'label': 'Mean expression', "location": "top", "shrink": 0.2},
+            cbar_kws={'label': 'Mean expr.', "location": "top", "aspect": 10},
             #cbar=False,
             xticklabels=1,
-            #yticklabels=False,
-            yticklabels=1,
+            yticklabels=False,
+            #yticklabels=1,
         )
+
+        cb = ax.collections[0].colorbar
+        tick_locator = ticker.MaxNLocator(nbins=1)
+        cb.locator = tick_locator
+        cb.update_ticks()
+
         plt.xticks(rotation=90)
         plt.yticks(rotation=0)
         ax.get_figure().savefig(output[1], bbox_inches='tight')
@@ -3465,14 +3479,46 @@ rule plot_marker_introns_tissue:
 #        groupby.to_csv(output[0], "\t")
 #
 #
-#rule get_dendrogram_entanglement:
-#    input:
-#        "output/dendrogram/{features1}/features.tsv",
-#        "output/dendrogram/{features2}/features.tsv",
-#    output:
-#        "output/dendrogram/{features1}-{scale1}-{features2}-{scale2}/entanglement.txt",
-#    shell:
-#        "Rscript compute_entanglement.R {input[0]} {wildcards.scale1} {input[1]} {wildcards.scale2} {output}"
+rule produce_latent_space_features_dendrogram:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+        "output/dimensionality_reduction/all/{features}/latent.txt",
+        #"output/dimensionality_reduction/all/gene-expression/pca_40/latent.txt",
+        #"output/dimensionality_reduction/all/introns-shared-acceptor/vae_hyperopt/latent.txt",
+    output:
+        "output/dendrogram/{features}/features.tsv",
+    run:
+        adata = anndata.read_h5ad(input[0])
+        #adata.obs["group"] = adata.obs.tissue.astype(str) + "/" + adata.obs.cell_type.astype(str)
+        adata.obs["group"] = adata.obs.cell_ontology_class
+        adata.obs = adata.obs.filter(items=["group"])
+        latent = np.loadtxt(input[1])
+        print("latent.shape: ", latent.shape)
+        latent_names = [f"latent_{i}" for i in range(latent.shape[1])]
+        print(latent_names)
+        adata.obs[latent_names] = latent
+
+        min_cells_per_group = 100
+        group_counts = adata.obs.group.value_counts()
+        groups = group_counts[group_counts >= min_cells_per_group].index.values
+        print(adata.shape)
+        adata = adata[adata.obs["group"].isin(groups)]
+        print(adata.shape)
+        #groupby = adata.obs.groupby("group").mean()
+        groupby = adata.obs.groupby("group").median()
+        print(groupby)
+        groupby.to_csv(output[0], "\t")
+
+
+rule get_dendrogram_entanglement:
+    input:
+        "output/dendrogram/{features1}/features.tsv",
+        "output/dendrogram/{features2}/features.tsv",
+    output:
+        "output/dendrogram/{features1}_vs_{features2}/entanglement.txt",
+        "output/dendrogram/{features1}_vs_{features2}/tanglegram.pdf",
+    shell:
+        "Rscript compute_entanglement.R {input} {output}"
 #
 #
 #rule plot_dendrogram_entanglement_exp:
