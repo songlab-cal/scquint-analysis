@@ -71,8 +71,18 @@ sample_info["plate_id"] = sample_info.index.str.split("_").str[1]
 
 functional_class_info = pd.read_csv("input/cell_ontology_class_functional_annotation.073020.tsv", sep="\t", index_col=[0, 1]).filter(items=["cell category"])
 functional_class_info.rename(columns={"cell category": "functional_class"}, inplace=True)
+functional_class_info.functional_class.replace({
+    "immune;stem cell/progenitor": "immune",
+    "parenchymal;epithelial": "epithelial",
+    "parenchymal": "other",
+    "parenchymal;muscle cell": "other",
+}, inplace=True)
 sample_info = sample_info.merge(functional_class_info, how="left", left_on=["tissue", "cell_ontology_class"], right_index=True)
 print(sample_info.functional_class.value_counts())
+#sample_info.loc[sample_info.functional_class=="Other", "functional_class"] = sample_info.loc[sample_info.functional_class=="Other", "tissue"]
+sample_info.loc[(sample_info.functional_class=="other") & (sample_info.tissue.isin(["Brain_Non-Myeloid", "Pancreas"])), "functional_class"] = sample_info.loc[(sample_info.functional_class=="other") & (sample_info.tissue.isin(["Brain_Non-Myeloid", "Pancreas"])), "tissue"]
+print(sample_info.functional_class.value_counts())
+
 
 sample_info["tct"] = sample_info.tissue.astype(str) + "." + sample_info.cell_type.astype(str)
 tct_counts = sample_info.tct.value_counts()
@@ -219,7 +229,7 @@ features = ["all_exp", "tf_exp", "tf_exp_spl", "tf_spl",]
 
 rule all:
     input:
-        expand('output/differential_splicing/functional_class/{functional_class}/marker_introns.svg', functional_class=functional_classes),
+        #expand('output/differential_splicing/functional_class/{functional_class}/marker_introns.svg', functional_class=functional_classes),
         #expand('output/differential_splicing/functional_class/endothelial/{tct}/splicing.clusters.tsv', tct=tcts_functional_class["endothelial"]),
         #expand('output/differential_splicing/functional_class/epithelial/{tct}/splicing.clusters.tsv', tct=tcts_functional_class["epithelial"]),
         #expand("output/comparison/functional_class/{functional_class}/tissue_cell_type.svg", functional_class=["epithelial", "endothelial"]),
@@ -241,7 +251,7 @@ rule all:
         #expand("output/dendrogram/all_spl-TRUE-{features2}-{scale2}/entanglement.txt", features2=["sf_exp", "sf_spl", "sf_exp_spl"], scale2=["TRUE", "FALSE"])
         #expand("output/dendrogram/{features}/features.tsv", features=features),
         #expand("output/dendrogram/{features}/features.tsv", features=["gene-expression/pca_40", "introns-shared-acceptor/vae_hyperopt"]),
-        #"output/dendrogram/gene-expression/pca_40_vs_introns-shared-acceptor/vae_hyperopt/entanglement.txt",
+        "output/dendrogram/gene-expression/pca_40_vs_introns-shared-acceptor/vae_hyperopt/entanglement.txt",
         #"output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg",
         #"output/differential_splicing/marrow_b/tf_Foxp1_trajectory.svg",
         #"output/differential_splicing/marrow_b/tf_Smarca4_trajectory.svg",
@@ -3508,10 +3518,16 @@ rule produce_latent_space_features_dendrogram:
         #"output/dimensionality_reduction/all/introns-shared-acceptor/vae_hyperopt/latent.txt",
     output:
         "output/dendrogram/{features}/features.tsv",
+        "output/dendrogram/{features}/colors.tsv",
+        "output/dendrogram/{features}/color_reference.tsv",
+        "output/dendrogram/{features}/legend.svg",
     run:
         adata = anndata.read_h5ad(input[0])
+        adata.obs["functional_class"] = sample_info.functional_class.values
         #adata.obs["group"] = adata.obs.tissue.astype(str) + "/" + adata.obs.cell_type.astype(str)
         adata.obs["group"] = adata.obs.cell_ontology_class
+        adata.obs["color_group"] = adata.obs.functional_class
+        group_color_group = adata.obs.groupby("group").color_group.agg(pd.Series.mode)
         adata.obs = adata.obs.filter(items=["group"])
         latent = np.loadtxt(input[1])
         print("latent.shape: ", latent.shape)
@@ -3524,20 +3540,59 @@ rule produce_latent_space_features_dendrogram:
         groups = group_counts[group_counts >= min_cells_per_group].index.values
         print(adata.shape)
         adata = adata[adata.obs["group"].isin(groups)]
+
         print(adata.shape)
         #groupby = adata.obs.groupby("group").mean()
         groupby = adata.obs.groupby("group").median()
         print(groupby)
+
+        group_color_group = group_color_group.loc[groupby.index.values].to_frame()
+        print(group_color_group)
+        ordering = ["immune", "epithelial", "endothelial", "stromal", "stem cell/progenitor", "Brain_Non-Myeloid", "Pancreas", "other"]
+        group_color_group["color_group_code"] = group_color_group.color_group.apply(lambda x: ordering.index(str(x)))
+        group_color_group.sort_values("color_group_code", inplace=True)
+        print(group_color_group)
+
+        groupby = groupby.loc[group_color_group.index.values]
+        #raise Exception("debug")
+        #group_color_group.color_group = group_color_group.color_group.astype("category")
+        #print(group_color_group)
+        #group_color_group["color_group_code"] = group_color_group.color_group.cat.codes
+
+        import matplotlib
+        from matplotlib import cm
+        cmap = cm.get_cmap("tab10")
+        #cmap = cm.get_cmap("tab20")
+        group_color_group["color_group_hex"] = group_color_group.color_group_code.apply(lambda i: matplotlib.colors.rgb2hex(cmap(i)))
+
+        print(group_color_group)
         groupby.to_csv(output[0], "\t")
+        group_color_group.to_csv(output[1], columns=["color_group_hex"], header=False, index=False)
+        color_reference = group_color_group.groupby("color_group_code").color_group.first()
+        color_reference.to_csv(output[2], sep="\t")
+        print(color_reference)
+
+        fig = plt.figure("Line plot")
+        legendFig = plt.figure("Legend plot")
+        ax = fig.add_subplot(111)
+
+        lines = []
+        for i, label in color_reference.iteritems():
+            line, = ax.plot([0, 1], [0, 1], marker="o", linestyle="None", label=label, color=cmap(i))
+            lines.append(line)
+
+        legendFig.legend(lines, color_reference.values, loc='center')
+        legendFig.savefig(output[3], bbox_inches="tight")
 
 
 rule get_dendrogram_entanglement:
     input:
         "output/dendrogram/{features1}/features.tsv",
         "output/dendrogram/{features2}/features.tsv",
+        "output/dendrogram/{features1}/colors.tsv",
     output:
         "output/dendrogram/{features1}_vs_{features2}/entanglement.txt",
-        "output/dendrogram/{features1}_vs_{features2}/tanglegram.pdf",
+        "output/dendrogram/{features1}_vs_{features2}/tanglegram.svg",
     shell:
         "Rscript compute_entanglement.R {input} {output}"
 #
