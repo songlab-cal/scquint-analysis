@@ -148,14 +148,18 @@ genes_bam_merge = {
 #        "region": ["chr6", 98888459, 99713014],
 #        "cell_types": ["late_pro_B_cell", "precursor_B_cell", "immature_B_cell", "naive_B_cell"],
 #    },
-    "Smarca4": {
-        "region": ["chr9", 21615842, 21633577],
-        "cell_types": ["late_pro_B_cell", "precursor_B_cell", "immature_B_cell", "naive_B_cell"],
-    },
+#    "Smarca4": {
+#        "region": ["chr9", 21615842, 21633577],
+#        "cell_types": ["late_pro_B_cell", "precursor_B_cell", "immature_B_cell", "naive_B_cell"],
+#    },
 #    "Echdc2": {
 #        "region": ["chr4", 108164887, 108179634],
 #        "cell_types": ["hepatocyte_cluster_0", "hepatocyte_cluster_1"],
 #    },
+    "Khk": {
+        "region": ["chr5", 30924665, 30928620],
+        "cell_types": ["kidney_collecting_duct_epithelial_cell", "bladder_urothelial_cell", "epithelial_cell_of_large_intestine"],
+    },
 }
 
 
@@ -229,6 +233,7 @@ features = ["all_exp", "tf_exp", "tf_exp_spl", "tf_spl",]
 
 rule all:
     input:
+        expand('output/differential_splicing/functional_class/{functional_class}/plot_marker_intron_coordinates.txt', functional_class=functional_classes),
         #expand('output/differential_splicing/functional_class/{functional_class}/marker_introns.svg', functional_class=functional_classes),
         #expand('output/differential_splicing/functional_class/endothelial/{tct}/splicing.clusters.tsv', tct=tcts_functional_class["endothelial"]),
         #expand('output/differential_splicing/functional_class/epithelial/{tct}/splicing.clusters.tsv', tct=tcts_functional_class["epithelial"]),
@@ -251,7 +256,8 @@ rule all:
         #expand("output/dendrogram/all_spl-TRUE-{features2}-{scale2}/entanglement.txt", features2=["sf_exp", "sf_spl", "sf_exp_spl"], scale2=["TRUE", "FALSE"])
         #expand("output/dendrogram/{features}/features.tsv", features=features),
         #expand("output/dendrogram/{features}/features.tsv", features=["gene-expression/pca_40", "introns-shared-acceptor/vae_hyperopt"]),
-        "output/dendrogram/gene-expression/pca_40_vs_introns-shared-acceptor/vae_hyperopt/entanglement.txt",
+        #"output/dendrogram/gene-expression/pca_40_vs_introns-shared-acceptor/vae_hyperopt/entanglement.txt",
+        expand("output/bam_regions/Khk/{cell_type}/merged.bam", cell_type=genes_bam_merge["Khk"]["cell_types"]),
         #"output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg",
         #"output/differential_splicing/marrow_b/tf_Foxp1_trajectory.svg",
         #"output/differential_splicing/marrow_b/tf_Smarca4_trajectory.svg",
@@ -960,36 +966,35 @@ rule all:
 #        np.savetxt(output[0], latent)
 #
 #
-#rule filter_bam_to_region:
-#    input:
-#        "output/mapping/filtered_bams/{sample_id}.bam"
-#    output:
-#        "output/bam_regions/{gene}/{sample_id}.bam"
-#    run:
-#        chromosome, start, end = genes_bam_merge[wildcards["gene"]]["region"]
-#        #shell(f"bamtools filter -region {chromosome}:{start}..{end} -in {input} -out {output}")
-#        shell(f"samtools view -b -o {output} {input} {chromosome}:{start}-{end}")
-#
-#
-#rule make_bam_paths_gene:
-#    input:
-#        lambda wildcards: expand(f"output/bam_regions/{wildcards['gene']}/{{sample_id}}.bam", sample_id=sample_ids[(sample_info.cell_type==wildcards["cell_type"])])
-#    output:
-#        "output/bam_paths-{gene}-{cell_type}.txt"
-#    run:
-#        pd.DataFrame(input).to_csv(output[0], "\t", index=False, header=False)
-#
-#
-#rule merge_bams:
-#    input:
-#        "output/bam_paths-{gene}-{cell_type}.txt"
-#    output:
-#        "output/bam_regions/{gene}/{cell_type}/merged.bam"
-#    threads:
-#        workflow.cores
-#    priority: 10
-#    shell:
-#        "samtools merge --threads {threads} -b {input} {output}"
+rule filter_bam_to_region:
+    input:
+        "output/mapping/filtered_bams/{sample_id}.bam"
+    output:
+        "output/bam_regions/{gene}/{sample_id}.bam"
+    run:
+        chromosome, start, end = genes_bam_merge[wildcards["gene"]]["region"]
+        shell(f"samtools view -b -o {output} {input} {chromosome}:{start}-{end}")
+
+
+rule make_bam_paths_gene:
+    input:
+        lambda wildcards: expand(f"output/bam_regions/{wildcards['gene']}/{{sample_id}}.bam", sample_id=sample_ids[(sample_info.cell_type==wildcards["cell_type"])])
+    output:
+        "output/bam_paths-{gene}-{cell_type}.txt"
+    run:
+        pd.DataFrame(input).to_csv(output[0], "\t", index=False, header=False)
+
+
+rule merge_bams:
+    input:
+        "output/bam_paths-{gene}-{cell_type}.txt"
+    output:
+        "output/bam_regions/{gene}/{cell_type}/merged.bam"
+    threads:
+        workflow.cores
+    priority: 10
+    shell:
+        "samtools merge --threads {threads} -b {input} {output}"
 #
 #
 #rule differential_test_tissue_cell_type:
@@ -4384,3 +4389,20 @@ rule plot_marker_introns_functional_class:
         plt.yticks(rotation=0)
         ax.get_figure().savefig(output[1], bbox_inches='tight')
         plt.close("all")
+
+
+rule make_latex_table_intron_coordinates_anything:
+    input:
+        "output/intron_id.tsv",
+        "output/{anything}/plot_marker_introns.tsv",
+    output:
+        "output/{anything}/plot_marker_intron_coordinates.txt",
+    run:
+        coordinate_id_mapping = pd.read_csv(input[0], "\t", index_col=2)
+        introns = pd.read_csv(input[1], sep="\t")
+        coordinate_id_mapping = coordinate_id_mapping.loc[introns.marker_intron.values]
+        print(coordinate_id_mapping)
+        coordinate_id_mapping["Intron id"] = coordinate_id_mapping.gene_name.astype(str) + "_" + coordinate_id_mapping["id"].astype(str)
+        coordinate_id_mapping["Intron coordinate"] = coordinate_id_mapping.index.values
+        table = coordinate_id_mapping.filter(items=["Intron id", "Intron coordinate"])
+        table.sort_values("Intron id").to_latex(output[0], index=False)
