@@ -156,9 +156,13 @@ genes_bam_merge = {
 #        "region": ["chr4", 108164887, 108179634],
 #        "cell_types": ["hepatocyte_cluster_0", "hepatocyte_cluster_1"],
 #    },
-    "Khk": {
-        "region": ["chr5", 30924665, 30928620],
-        "cell_types": ["kidney_collecting_duct_epithelial_cell", "bladder_urothelial_cell", "epithelial_cell_of_large_intestine"],
+#    "Khk": {
+#        "region": ["chr5", 30924665, 30928620],
+#        "cell_types": ["kidney_collecting_duct_epithelial_cell", "bladder_urothelial_cell", "epithelial_cell_of_large_intestine"],
+#    },
+    "Itpr1": {
+        "region": ["chr6", 108482356, 108509805],
+        "cell_types": ["bladder_urothelial_cell", "secretory_cell"],
     },
 }
 
@@ -233,7 +237,7 @@ features = ["all_exp", "tf_exp", "tf_exp_spl", "tf_spl",]
 
 rule all:
     input:
-        expand('output/differential_splicing/functional_class/{functional_class}/plot_marker_intron_coordinates.txt', functional_class=functional_classes),
+        #expand('output/differential_splicing/functional_class/{functional_class}/plot_marker_intron_coordinates.txt', functional_class=functional_classes),
         #expand('output/differential_splicing/functional_class/{functional_class}/marker_introns.svg', functional_class=functional_classes),
         #expand('output/differential_splicing/functional_class/endothelial/{tct}/splicing.clusters.tsv', tct=tcts_functional_class["endothelial"]),
         #expand('output/differential_splicing/functional_class/epithelial/{tct}/splicing.clusters.tsv', tct=tcts_functional_class["epithelial"]),
@@ -256,8 +260,9 @@ rule all:
         #expand("output/dendrogram/all_spl-TRUE-{features2}-{scale2}/entanglement.txt", features2=["sf_exp", "sf_spl", "sf_exp_spl"], scale2=["TRUE", "FALSE"])
         #expand("output/dendrogram/{features}/features.tsv", features=features),
         #expand("output/dendrogram/{features}/features.tsv", features=["gene-expression/pca_40", "introns-shared-acceptor/vae_hyperopt"]),
-        #"output/dendrogram/gene-expression/pca_40_vs_introns-shared-acceptor/vae_hyperopt/entanglement.txt",
-        expand("output/bam_regions/Khk/{cell_type}/merged.bam", cell_type=genes_bam_merge["Khk"]["cell_types"]),
+        "output/dendrogram/gene-expression/pca_40_vs_introns-shared-acceptor/vae_hyperopt/entanglement.txt",
+        #expand("output/bam_regions/Khk/{cell_type}/merged.bam", cell_type=genes_bam_merge["Khk"]["cell_types"]),
+        #expand("output/bam_regions/Itpr1/{cell_type}/merged.bam", cell_type=genes_bam_merge["Itpr1"]["cell_types"]),
         #"output/differential_splicing/new_clusters/Liver/hepatocyte/marker_genes.svg",
         #"output/differential_splicing/marrow_b/tf_Foxp1_trajectory.svg",
         #"output/differential_splicing/marrow_b/tf_Smarca4_trajectory.svg",
@@ -991,7 +996,7 @@ rule merge_bams:
     output:
         "output/bam_regions/{gene}/{cell_type}/merged.bam"
     threads:
-        workflow.cores
+        workflow.cores // 2
     priority: 10
     shell:
         "samtools merge --threads {threads} -b {input} {output}"
@@ -2443,47 +2448,45 @@ rule plot_marker_introns_tissue:
 #        diff_spl_introns.to_csv(output[2], '\t')
 #
 #
-#rule prepare_adata_for_cellxgene_exp_spl:
-#    input:
-#        "output/quantification/gene-expression/adata_annotated.h5ad",
-#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-#        "output/gene_name.txt",
-#        #"output/dimensionality_reduction/all/introns-shared-acceptor/pca_300_20/latent.txt",
-#        "output/dimensionality_reduction/all/gene-expression/pca_40/latent.txt",
-#        "output/dimensionality_reduction/all/introns-shared-acceptor/vae_hyperopt/latent.txt",
-#    output:
-#        #"output/adata_cellxgene_spl_pca.h5ad",
-#        "output/adata_cellxgene_exp_spl.h5ad",
-#    run:
-#        gene_name = pd.read_csv(input[2], "\t", index_col=0)
-#        latent_exp = np.loadtxt(input[3])
-#        latent_spl = np.loadtxt(input[4])
-#        adata_exp = anndata.read_h5ad(input[0])
-#        adata_exp.var = adata_exp.var.merge(gene_name, how="left", left_index=True, right_index=True)
-#        adata_exp.var["gene_id"] = adata_exp.var.index.values
-#        adata_exp.var = adata_exp.var.set_index("gene_name")
-#        adata_exp.var_names_make_unique()
-#        adata_exp.obs.index = adata_exp.obs.index.astype(str)
-#        adata_spl = anndata.read_h5ad(input[1])
-#        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
-#        adata_spl.var["id"] = adata_spl.var.gene_name + "_" + adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
-#        adata_spl.var = adata_spl.var.set_index("id", drop=False)
-#        adata_spl.obs.index = adata_spl.obs.index.astype(str)
-#        adata_spl.var.index = adata_spl.var.index.astype(str)
-#        assert((adata_exp.obs.index == adata_spl.obs.index).all())
-#        sc.pp.normalize_total(adata_exp, target_sum=1e4)
-#        sc.pp.log1p(adata_exp)
-#        adata_exp.X = adata_exp.X.toarray()
-#        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
-#
-#        X = np.hstack((adata_exp.X, adata_spl.X))
-#        print(adata_exp.shape, adata_spl.shape, X.shape)
-#        obs = adata_exp.obs
-#        var = pd.concat([adata_exp.var, adata_spl.var])
-#        adata = anndata.AnnData(X=X, obs=obs, var=var)
-#        adata.obsm["X_umap"] = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent_exp)
-#        adata.obsm["X_umap_spl"] = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent_spl)
-#        adata.write_h5ad(output[0], compression="gzip")
+rule prepare_adata_for_cellxgene_exp_spl:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+        "output/gene_name.txt",
+        "output/dimensionality_reduction/all/gene-expression/pca_40/latent.txt",
+        "output/dimensionality_reduction/all/introns-shared-acceptor/vae_hyperopt/latent.txt",
+    output:
+        "output/adata_cellxgene_exp_spl.h5ad",
+    run:
+        gene_name = pd.read_csv(input[2], "\t", index_col=0)
+        latent_exp = np.loadtxt(input[3])
+        latent_spl = np.loadtxt(input[4])
+        adata_exp = anndata.read_h5ad(input[0])
+        adata_exp.var = adata_exp.var.merge(gene_name, how="left", left_index=True, right_index=True)
+        adata_exp.var["gene_id"] = adata_exp.var.index.values
+        adata_exp.var = adata_exp.var.set_index("gene_name")
+        adata_exp.var_names_make_unique()
+        adata_exp.obs.index = adata_exp.obs.index.astype(str)
+        adata_spl = anndata.read_h5ad(input[1])
+        adata_spl.var = adata_spl.var.merge(gene_name, how="left", left_on="gene_id", right_index=True)
+        adata_spl.var["id"] = adata_spl.var.gene_name + "_" + adata_spl.var.chromosome.astype(str) + ":" + adata_spl.var.start.astype(str) + "-" + adata_spl.var.end.astype(str)
+        adata_spl.var = adata_spl.var.set_index("id", drop=False)
+        adata_spl.obs.index = adata_spl.obs.index.astype(str)
+        adata_spl.var.index = adata_spl.var.index.astype(str)
+        assert((adata_exp.obs.index == adata_spl.obs.index).all())
+        sc.pp.normalize_total(adata_exp, target_sum=1e4)
+        sc.pp.log1p(adata_exp)
+        adata_exp.X = adata_exp.X.toarray()
+        adata_spl.X = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=False)
+
+        X = np.hstack((adata_exp.X, adata_spl.X))
+        print(adata_exp.shape, adata_spl.shape, X.shape)
+        obs = adata_exp.obs
+        var = pd.concat([adata_exp.var, adata_spl.var])
+        adata = anndata.AnnData(X=X, obs=obs, var=var)
+        adata.obsm["X_umap_expression"] = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent_exp)
+        adata.obsm["X_umap_splicing"] = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent_spl)
+        adata.write_h5ad(output[0], compression="gzip")
 #
 #
 #rule make_bam_paths_new_clusters:
@@ -3566,8 +3569,16 @@ rule produce_latent_space_features_dendrogram:
 
         import matplotlib
         from matplotlib import cm
-        cmap = cm.get_cmap("tab10")
+        #cmap = cm.get_cmap("Dark2")
         #cmap = cm.get_cmap("tab20")
+        initial_cmap = cm.get_cmap("tab10")
+        def cmap(i):
+            if i == 6:
+                #new_i = 9
+                new_i = 8
+            else:
+                new_i = i
+            return initial_cmap(new_i)
         group_color_group["color_group_hex"] = group_color_group.color_group_code.apply(lambda i: matplotlib.colors.rgb2hex(cmap(i)))
 
         print(group_color_group)
