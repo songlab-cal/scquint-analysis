@@ -1,0 +1,3 @@
+L5_IT	L5_IT/merged.bam	L5 IT
+L5slash6_NP	L5slash6_NP/merged.bam	L5/6 NP
+Lamp5	Lamp5/merged.bam	Lamp5

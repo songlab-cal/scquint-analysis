@@ -1,0 +1,4 @@
+pro	Foxp1_late_pro.bam	(1) pro-B
+pre	Foxp1_precursor.bam	(2) pre-B
+imm	Foxp1_immature.bam	(3) imm. B
+naive	Foxp1_naive.bam	(4) naive B

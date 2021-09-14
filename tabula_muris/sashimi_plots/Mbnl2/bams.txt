@@ -1,0 +1,3 @@
+Pvalb	Pvalb/merged.bam	Pvalb
+Vip	Vip/merged.bam	Vip
+Lamp5	Lamp5/merged.bam	Lamp5

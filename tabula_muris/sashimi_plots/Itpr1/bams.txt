@@ -1,0 +1,2 @@
+first	bladder_urothelial_cell/merged.bam	bladder\n urothelial cell
+second	secretory_cell/merged.bam	large intestine\n secretory cell

@@ -1,0 +1,3 @@
+third	kidney_collecting_duct_epithelial_cell/merged.bam	kidney\n collecting duct\n epithelial cell
+first	bladder_urothelial_cell/merged.bam	bladder\n urothelial cell
+second	epithelial_cell_of_large_intestine/merged.bam	large intestine\nepithelial cell

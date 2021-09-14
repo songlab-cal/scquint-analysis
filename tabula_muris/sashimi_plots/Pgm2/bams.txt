@@ -1,0 +1,2 @@
+Sst	Sst/merged.bam	Sst
+L6b	L6b/merged.bam	L6b

@@ -1,0 +1,2 @@
+cluster_0	cluster_0.bam	Cluster 0
+cluster_1	cluster_1.bam	Cluster 1

@@ -1,0 +1,2 @@
+L6_IT	L6_IT/merged.bam	L6 IT
+Vip	Vip/merged.bam	Vip

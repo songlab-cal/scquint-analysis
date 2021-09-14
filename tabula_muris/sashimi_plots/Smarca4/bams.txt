@@ -1,0 +1,4 @@
+pro	pro.bam	(1) pro-B
+pre	pre.bam	(2) pre-B
+imm	immature.bam	(3) imm. B
+naive	naive.bam	(4) naive B

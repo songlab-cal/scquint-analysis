@@ -1,0 +1,2 @@
+L6 CT	L6_CT/merged.bam	L6 CT
+L6b	L6b/merged.bam	L6b
