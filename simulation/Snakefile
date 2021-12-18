@@ -41,7 +41,8 @@ subset_genes = 200
 subset_transcripts = 2
 subset_genes_seed = 42
 
-groupings = ["nontransitive", "transitive", "gene"]
+#groupings = ["nontransitive", "transitive", "gene"]
+groupings = ["introns-shared-acceptor"]
 methods = [
     "original_kallisto_permutation-Euclidean",
     #"assembly-unguided-merged_exons_permutation-Euclidean",
@@ -80,8 +81,9 @@ def flip_coin():
 
 rule all:
     input:
+        expand("output/{dataset}/{reference}/bam_paths.txt", dataset=datasets, reference=references),
         #expand("output/{dataset}/{reference}/reference.gtf", dataset=datasets, reference=references),
-        expand("output/{dataset}/fastq", dataset=datasets),
+        #expand("output/{dataset}/fastq", dataset=datasets),
         #expand("output/{dataset}/fastq", dataset=datasets),
         #"output/results/all.pdf",
         #"output/1.5_0.33_0.11_100/unannotated_0/results/null/p_value_dist.pdf",
@@ -324,131 +326,48 @@ rule read_mapping:
     threads: workflow.cores
     priority: 100
     output:
-        expand("output/{{dataset}}/{{reference}}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam", sample_id=sample_ids)
+        expand("output/{{dataset}}/{{reference}}/mapping/rmdup/{sample_id}/Aligned.rmdup.out.bam", sample_id=sample_ids)
     shell:
         "python -m scquint.quantification.run read_mapping/Snakefile --cores {threads} -d output/{wildcards.dataset}/{wildcards.reference}/mapping/ --config min_cells_per_intron=10 fastq_paths=../../fastq_paths.txt fasta_path={genome_fasta_path} gtf_path=../reference.gtf sjdb_overhang=99"
-#
-#
-#rule produce_bam_paths:
-#    input:
-#        expand("output/{{dataset}}/{{reference}}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam", sample_id=sample_ids)
-#    output:
-#        "output/{dataset}/{reference}/bam_paths.txt",
-#    run:
-#        cwd = os.getcwd()
-#        pd.DataFrame(dict(sample_id=sample_ids, bam_path=[f"{cwd}/output/{wildcards.dataset}/{wildcards.reference}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam" for sample_id in sample_ids])).to_csv(output[0], "\t", index=False, header=False)
-#
-#
-#rule produce_raw_bam_paths:
-#    input:
-#        "output/{dataset}/{reference}/bam_paths.txt",
-#    output:
-#        "output/{dataset}/{reference}/raw_bam_paths.txt",
-#    shell:
-#        "cut -f2 {input} > {output}"
-#
-#
-#rule transcriptome_assembly:
-#    input:
-#        "output/{dataset}/{reference}/raw_bam_paths.txt",
-#        "output/{dataset}/{reference}/reference.gtf",
-#    output:
-#        #"output/{dataset}/{reference}/assembly/output/assembly-unguided-only_annotated.gtf",
-#        "output/{dataset}/{reference}/assembly/output/assembly-unguided-merged_annotated.gtf",
-#        #"output/{dataset}/{reference}/assembly/output/assembly-guided-only_annotated.gtf",
-#        #"output/{dataset}/{reference}/assembly/output/assembly-guided-merged_annotated.gtf",
-#    threads: workflow.cores
-#    shell:
-#        "python -m spliceVI.quantification.run assembly/Snakefile --cores {threads} -d output/{wildcards.dataset}/{wildcards.reference}/assembly/ --config bam_paths=../raw_bam_paths.txt gtf_path=../reference.gtf"
-#
-#
-#rule present_original:
-#    input:
-#        "output/{dataset}/{reference}/reference.gtf"
-#    output:
-#        "output/{dataset}/{reference}/quantification/original/reference.gtf"
-#    shell:
-#        "cp {input} {output}"
-#
-#
-#
-#rule present_assembly:
-#    input:
-#        "output/{dataset}/{reference}/assembly/output/assembly-{anything}_annotated.gtf"
-#    output:
-#        "output/{dataset}/{reference}/quantification/assembly-{anything}/reference.gtf"
-#    shell:
-#        "cp {input} {output}"
-#
-#
-#rule splicevi_quantification:
-#    input:
-#        "output/{dataset}/{reference}/bam_paths.txt",
-#        "output/{dataset}/{reference}/chromosomes.txt",
-#        "output/{dataset}/{reference}/quantification/{mode}/reference.gtf",
-#    threads: workflow.cores
-#    output:
-#        expand("output/{{dataset}}/{{reference}}/quantification/{{mode}}/splicevi/output/splicing_{grouping}/adata.h5ad", grouping=groupings)
-#    shell:
-#        "python -m spliceVI.quantification.run introns/Snakefile --cores {threads} -d output/{wildcards.dataset}/{wildcards.reference}/quantification/{wildcards.mode}/splicevi/ --config min_cells_per_intron=10 bam_paths=../../../bam_paths.txt chromosomes_path=../../../chromosomes.txt fasta_path={genome_fasta_path} gtf_path=../reference.gtf chrom_sizes_path={chrom_sizes_path} sjdb_path=../../../mapping/first_STAR_index/sjdbList.out.tab"
-#
-#
-#rule extract_splicevi_quantification:
-#    input:
-#        "output/{dataset}/{reference}/quantification/{mode}/splicevi/output/splicing_{grouping}/adata.h5ad"
-#    output:
-#        "output/{dataset}/{reference}/quantification/{mode}/splicevi-{grouping}/adata.h5ad"
-#    shell:
-#        "cp {input} {output}"
-#
-#
-#rule get_gene_strand:
-#    input:
-#        "references/unannotated_0.gtf",
-#    output:
-#        "output/gene_strand.txt",
-#    run:
-#        df = pd.read_csv(
-#            input[0], '\t', header=None, comment="#",
-#            names=['chromosome', 'source', 'feature', 'start', 'end', 'score', 'strand', 'frame', 'attribute'],
-#        )
-#        df = df[df.feature=="gene"]
-#        df['gene_id'] = df.attribute.str.extract(r'gene_id "([^;]*)";')
-#        groupby = df.groupby("gene_id").strand.first()
-#        groupby.to_csv(output[0], "\t")
-#
-#
-#rule separate_introns:
-#    input:
-#        "output/{anything}/splicevi-nontransitive/adata.h5ad",
-#        "output/gene_strand.txt",
-#    output:
-#        "output/{anything}/introns-shared-acceptor/adata.h5ad",
-#        "output/{anything}/introns-shared-donor/adata.h5ad",
-#    run:
-#        adata = anndata.read_h5ad(input[0])
-#        groupby = adata.var.groupby("cluster").start.nunique().to_frame().rename(columns={"start": "n_start"})
-#        adata.var = adata.var.merge(groupby, how="left", left_on="cluster", right_index=True)
-#        gene_strand = pd.read_csv(input[1], "\t")
-#        adata.var = adata.var.merge(gene_strand, how="left", left_on="gene_id", right_on="gene_id")
-#
-#        def get_cluster_type(intron):
-#            if intron.strand == "+":
-#                return "shared_donor" if intron.n_start == 1 else "shared_acceptor"
-#            elif intron.strand == "-":
-#                return "shared_donor" if intron.n_start > 1 else "shared_acceptor"
-#            else:
-#                return "unknown"
-#
-#        adata.var["cluster_type"] = adata.var.apply(get_cluster_type, axis=1)
-#        adata.var.index = adata.var.index.astype(str)
-#        adata_shared_acceptor = adata[:, np.where(adata.var.cluster_type=="shared_acceptor")[0]].copy()
-#        adata_shared_acceptor = filter_min_cells_per_feature(adata_shared_acceptor, 1)  # just to relabel
-#        adata_shared_acceptor.write(output[0], compression="gzip")
-#        adata_shared_donor = adata[:, np.where(adata.var.cluster_type=="shared_donor")[0]].copy()
-#        adata_shared_donor = filter_min_cells_per_feature(adata_shared_donor, 1)  # just to relabel
-#        adata_shared_donor.write(output[1], compression="gzip")
-#
+
+
+rule produce_bam_paths:
+    input:
+        expand("output/{{dataset}}/{{reference}}/mapping/rmdup/{sample_id}/Aligned.rmdup.out.bam", sample_id=sample_ids)
+    output:
+        "output/{dataset}/{reference}/bam_paths.txt",
+    run:
+        cwd = os.getcwd()
+        pd.DataFrame(dict(sample_id=sample_ids, bam_path=[f"{cwd}/output/{wildcards.dataset}/{wildcards.reference}/mapping/rmdup/{sample_id}/Aligned.rmdup.out.bam" for sample_id in sample_ids])).to_csv(output[0], "\t", index=False, header=False)
+
+
+rule scQuint_quantification:
+    input:
+        "output/{dataset}/{reference}/bam_paths.txt",
+        "output/{dataset}/{reference}/chromosomes.txt",
+        "output/{dataset}/{reference}/reference.gtf",
+    threads: workflow.cores
+    output:
+        expand("output/{{dataset}}/{{reference}}/quantification/scQuint/output/splicing_{grouping}/adata.h5ad", grouping=groupings),
+    shell:
+        "python -m scquint.quantification.run introns/Snakefile --cores {threads} -d output/{wildcards.dataset}/{wildcards.reference}/quantification/scQuint/ --config min_cells_per_intron=10 bam_paths=../../bam_paths.txt chromosomes_path=../../chromosomes.txt fasta_path={genome_fasta_path} gtf_path=../../reference.gtf chrom_sizes_path={chrom_sizes_path} sjdb_path=../../mapping/first_STAR_index/sjdbList.out.tab"
+
+
+rule get_gene_strand:
+    input:
+        "references/unannotated_0.gtf",
+    output:
+        "output/gene_strand.txt",
+    run:
+        df = pd.read_csv(
+            input[0], '\t', header=None, comment="#",
+            names=['chromosome', 'source', 'feature', 'start', 'end', 'score', 'strand', 'frame', 'attribute'],
+        )
+        df = df[df.feature=="gene"]
+        df['gene_id'] = df.attribute.str.extract(r'gene_id "([^;]*)";')
+        groupby = df.groupby("gene_id").strand.first()
+        groupby.to_csv(output[0], "\t")
+
 
 #rule kallisto_quantification:
 #    input:
