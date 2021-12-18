@@ -1,0 +1,897 @@
+import csv
+import itertools
+import more_itertools
+import matplotlib
+matplotlib.use('pdf')
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import pandas as pd
+#import scanpy as sc
+import scipy.sparse as sp_sparse
+from scipy.stats import chi2, entropy, kde, mannwhitneyu, ttest_ind
+import seaborn as sns
+sns.set_theme(style="whitegrid")
+from skbio.stats.composition import clr, ilr, alr
+from sklearn.decomposition import NMF, PCA
+from sklearn.metrics import roc_auc_score, roc_curve
+from statsmodels.stats.multitest import multipletests
+import re
+from tqdm import tqdm
+#import GPUtil
+
+import anndata
+#from spliceVI.differential_splicing import run_differential_splicing
+# from spliceVI.dimensionality_reduction import Dataset, VAE, UnsupervisedTrainer, Posterior
+#from spliceVI.utils import relabel, group_normalize, filter_min_cells_per_feature
+
+
+original_gtf_path = "/global/scratch/projects/fc_songlab/gbenegas/genomes/mus_musculus/mm10/mm10_filt.gtf"
+chrom_sizes_path = "/global/scratch/projects/fc_songlab/gbenegas/genomes/mus_musculus/mm10/mm10.chrom.sizes"
+sjdb_path = "/global/scratch/projects/fc_songlab/gbenegas/genomes/mus_musculus/mm10/STAR_index/sjdbList.out.tab"
+genome_fasta_path = "/global/scratch/projects/fc_songlab/gbenegas/genomes/mus_musculus/mm10/mm10.fa"
+
+n_total_samples_per_group = 300
+n_test_samples_per_group = [300] #[100, 200, 300]
+
+repeats = [str(x).zfill(2) if x < 10 else str(x) for x in np.arange(1, 2*n_total_samples_per_group+1)]
+sample_ids = expand("sample_{repeat}", repeat=repeats)
+sample_ids = np.array(sample_ids)
+subset_genes = 200
+subset_transcripts = 2
+subset_genes_seed = 42
+
+groupings = ["nontransitive", "transitive", "gene"]
+methods = [
+    "original_kallisto_permutation-Euclidean",
+    #"assembly-unguided-merged_exons_permutation-Euclidean",
+    "original_bins-nmf_permutation-Euclidean",
+    "original_brie",
+    #"original_splicevi-gene_permutation-Euclidean",
+    #"original_splicevi-transitive_permutation-Euclidean",
+    #"original_splicevi-nontransitive_permutation-Euclidean",
+    "original_introns-shared-acceptor_permutation-Euclidean",
+    #"original_exons_permutation-Euclidean",
+    #"assembly-unguided-only_exons_permutation-Euclidean",
+    #"assembly-guided-only_exons_permutation-Euclidean",
+    #"assembly-guided-merged_exons_permutation-Euclidean",
+    #"original_bins_permutation-Euclidean",
+    #"reconstructed_exons_permutation-Euclidean",
+    #"reconstructed_kallisto_permutation-Euclidean",
+    #"reconstructed_bins_permutation-Euclidean",
+]
+
+fold_changes = [1.5]
+coverages = [0.33]
+#coverages = [0.16, 0.33, 1.0]
+size_fractions = [0.11]
+#size_fractions = [0.05, 0.11, 0.33]
+#seeds = [100, 101, 102]
+seeds = [100]
+
+datasets = expand("{fold_change}_{coverage}_{size_fraction}_{seed}", fold_change=fold_changes, coverage=coverages, size_fraction=size_fractions, seed=seeds)
+references = ["unannotated_0", "unannotated_1"]
+#references = ["unannotated_de"]
+
+
+def flip_coin():
+    return np.random.randint(2) == 0
+
+
+rule all:
+    input:
+        #expand("output/{dataset}/{reference}/reference.gtf", dataset=datasets, reference=references),
+        expand("output/{dataset}/fastq", dataset=datasets),
+        #expand("output/{dataset}/fastq", dataset=datasets),
+        #"output/results/all.pdf",
+        #"output/1.5_0.33_0.11_100/unannotated_0/results/null/p_value_dist.pdf",
+        #expand("output/{dataset}/{reference}/quantification/original/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
+        #expand("output/{dataset}/{reference}/quantification/original/{quantification}/adata.h5ad", dataset=datasets, reference=references, quantification=["kallisto", "bins-nmf", "splicevi-nontransitive"]),
+        #expand("output/{dataset}/{reference}/quantification/assembly-unguided-merged/exons/adata.h5ad", dataset=datasets, reference=references),
+        #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/original_brie/genes.csv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group)
+        # expand("output/{dataset}/{reference}/assembly_annotated.gtf", dataset=datasets, reference=references)
+        #expand("output/{dataset}/{reference}/assembly.gtf", dataset=datasets, reference=references)
+        # expand("output/{dataset}/{reference}/quantification/{mode}/{quantification}/adata.h5ad", dataset=datasets, reference=references, quantification=["kallisto", "exons", "bins"], mode=["original", "reconstructed"])
+        #expand("output/{dataset}/{reference}/quantification/splicevi/output/splicing_gene/adata.h5ad", dataset=datasets, reference=references)
+        #"output/results/summary.txt",
+
+
+rule make_empty_blacklist:
+    output:
+        "references/empty_blacklist.bed"
+    shell:
+        "touch {output}"
+
+
+rule filter_gtf:
+    input:
+        original_gtf_path,
+    output:
+        "references/unannotated_0.gtf",
+        "references/gene_transcript_info.txt"
+    run:
+        df = pd.read_csv(
+            input[0], '\t', header=None, comment="#",
+            names=['chromosome', 'source', 'feature', 'start', 'end', 'score', 'strand', 'frame', 'attribute'],
+        )
+        print(df.shape)
+        df['gene_id'] = df.attribute.str.extract(r'gene_id "([^;]*)";')
+        df['transcript_id'] = df.attribute.str.extract(r'transcript_id "([^;]*)";')
+        gene_biotype = df.attribute.str.extract(r'gene_biotype "([^;]*)";').values.ravel()
+        df_exon = df[df.feature=="exon"]
+        df_exon = df_exon[df_exon.attribute.str.contains('tag "basic";', regex=False)]
+
+        df = df.iloc[(gene_biotype == "protein_coding")]
+        print(df.shape)
+        n_transcripts_per_gene = df_exon.groupby("gene_id").transcript_id.nunique()
+        df = df.iloc[(n_transcripts_per_gene[df.gene_id.values] >= subset_transcripts).values]
+        print(df.shape)
+
+        gene_ids = df.gene_id.unique()
+        np.random.seed(subset_genes_seed)
+        genes_to_include = np.random.choice(gene_ids, size=subset_genes,replace=False)
+        df = df[df.gene_id.isin(genes_to_include)]
+        print(df.shape)
+
+        df_exon = df_exon[df_exon.gene_id.isin(genes_to_include)]
+        df = df[(df.transcript_id.isin(df_exon.transcript_id.unique()))]
+
+        # here should filter to transcript feature, to have no dups
+        transcripts_to_include = df[df.feature=="transcript"].groupby("gene_id").transcript_id.sample(n=subset_transcripts, replace=False, random_state=subset_genes_seed).values
+        df = df[(df.transcript_id.isin(transcripts_to_include)) | (df.feature=="gene")]
+        print(df.shape)
+
+        # TODO: should now filter non-overlap 3'
+        tqdm.pandas()
+        df_exon = df[df.feature=="exon"]
+
+        def get_transcript_introns(df_transcript):
+            df_transcript = df_transcript.sort_values("start")
+            exon_pairs = more_itertools.pairwise(df_transcript.loc[:, ["start", "end"]].values)
+            introns = [[e1[1], e2[0]] for e1, e2 in exon_pairs]
+            return introns
+
+        def check_overlapping_introns(introns1, introns2, strand):
+            for s1, e1 in introns1:
+                for s2, e2 in introns2:
+                    if strand == "+":
+                        if s1 != s2 and e1 == e2:
+                            return True
+                    elif strand == "-":
+                        if s1 == s2 and e1 != e2:
+                            return True
+                    else:
+                        print(f"strange strand: {strand}")
+            return False
+
+        def check_overlapping_introns_gene(df_gene):
+            transcript_introns = df_gene.groupby("transcript_id").apply(get_transcript_introns).values
+            comparisons = []
+            for i, introns1 in enumerate(transcript_introns):
+                for j, introns2 in enumerate(transcript_introns):
+                    if i < j:
+                        comparisons.append(check_overlapping_introns(introns1, introns2, df_gene.strand.values[0]))
+            return np.all(comparisons)
+
+        gene_id_overlapping = df_exon.groupby("gene_id").progress_apply(check_overlapping_introns_gene).reset_index()
+        print(gene_id_overlapping)
+        genes_to_keep = gene_id_overlapping[gene_id_overlapping.loc[:, 0]].gene_id.values
+        df = df[df.gene_id.isin(genes_to_keep)]
+        print(df.shape)
+
+        gene_transcript_info = df[["gene_id", "transcript_id"]].drop_duplicates().dropna()
+        print(gene_transcript_info.shape)
+        gene_transcript_info.to_csv(output[1], "\t", index=False)
+
+        df = df.drop(columns=["gene_id", "transcript_id"])
+        df.to_csv(output[0], "\t", header=False, index=False, quoting=csv.QUOTE_NONE)
+
+
+rule make_transcript_fasta:
+    input:
+        "references/unannotated_0.gtf",
+        genome_fasta_path,
+    output:
+        "references/unannotated_0.fa",
+    shell:
+        "gffread -w {output} -g {input[1]} {input[0]}"
+
+
+rule copy_reference:
+    input:
+        "references/unannotated_0.gtf",
+    output:
+        "output/{dataset}/unannotated_0/reference.gtf",
+    shell:
+        "cp {input} {output}"
+
+
+rule prepare_simulation_params:
+    input:
+        "references/gene_transcript_info.txt"
+    output:
+        "output/{fold_change}_{coverage}_{size_fraction}_{seed}/simulation_params.txt",
+    run:
+        diff_fold_change = float(wildcards["fold_change"])
+        diff_fold_change_rec = 1.0 / diff_fold_change
+        # np.random.seed(int(wildcards["seed"]))
+        np.random.seed(subset_genes_seed)
+
+        gene_transcript_info = pd.read_csv(input[0], "\t")
+        gene_ids = gene_transcript_info.gene_id.unique()
+        gene_transcript_info["coverage"] = float(wildcards["coverage"])
+        gene_transcript_info["size_fraction"] = float(wildcards["size_fraction"])
+        gene_transcript_info["fold_change_a"] = 1.0
+        gene_transcript_info["fold_change_b"] = 1.0
+        gene_transcript_info["differential"] = False
+        gene_fold_change = 1.5
+        print(gene_transcript_info)
+        gene_transcript_info = gene_transcript_info.set_index(["gene_id", "transcript_id"])
+        print(gene_transcript_info)
+        differential_genes = np.random.choice(gene_ids, size=len(gene_ids)//2, replace=False)
+        print("differential_genes.shape: ", differential_genes.shape)
+        print("np.unique(differential_genes).shape: ", np.unique(differential_genes).shape)
+
+        for gene_id in gene_ids:
+            df_gene = gene_transcript_info.loc[gene_id]
+            # Always overexpress the whole gene in one condition
+            if np.random.randint(2) == 0:
+                col = "fold_change_a"
+            else:
+                col = "fold_change_b"
+            df_gene.loc[:, col] = gene_fold_change
+
+            # For genes chosen to be differential, choose one isoform and overexpress
+            if gene_id in differential_genes:
+                diff_isoform = np.random.randint(len(df_gene))
+                if np.random.randint(2) == 0:
+                    col = "fold_change_a"
+                else:
+                    col = "fold_change_b"
+                if np.random.randint(2) == 0:
+                    final_fold_change = diff_fold_change
+                else:
+                    final_fold_change = diff_fold_change_rec
+                fc = df_gene[col]
+                fc.iloc[diff_isoform] *= final_fold_change
+                differential = df_gene["differential"]
+                differential.iloc[diff_isoform] = True
+                df_gene.loc[:, col] = fc
+                df_gene.loc[:, "differential"] = differential
+            gene_transcript_info.loc[gene_id] = df_gene.values
+        gene_transcript_info.reset_index().to_csv(output[0], "\t", index=False)
+
+
+rule mask_gtf:
+    input:
+        "output/{dataset}/simulation_params.txt",
+        "output/{dataset}/unannotated_0/reference.gtf",
+    output:
+        "output/{dataset}/unannotated_1/reference.gtf",
+    run:
+        sim_params = pd.read_csv(input[0], "\t")
+        #transcripts_to_keep = sim_params[~sim_params.differential].transcript_id.values
+        transcripts_to_keep = sim_params.sort_values("gene_id").transcript_id.values[::2]  # only keep one per gene
+        df = pd.read_csv(
+            input[1], '\t', header=None, comment="#",
+            names=['chromosome', 'source', 'feature', 'start', 'end', 'score', 'strand', 'frame', 'attribute'],
+        )
+        df['transcript_id'] = df.attribute.str.extract(r'transcript_id "([^;]*)";')
+        df = df[(df.transcript_id.isin(transcripts_to_keep)) | (df.feature=="gene")]
+        df = df.drop(columns=["transcript_id"])
+        df.to_csv(output[0], "\t", header=False, index=False, quoting=csv.QUOTE_NONE)
+
+
+rule simulate_reads:
+    input:
+        "references/unannotated_0.fa",
+        "output/{fold_change}_{coverage}_{size_fraction}_{seed}/simulation_params.txt",
+    output:
+        directory("output/{fold_change}_{coverage}_{size_fraction}_{seed}/fastq")
+    shell:
+        "Rscript run_polyester.R {input[0]} {input[1]} {n_total_samples_per_group} {wildcards.seed} {output}"
+
+
+rule prepare_fastq_paths:
+    output:
+        "output/{dataset}/fastq_paths.txt"
+    run:
+        df = pd.DataFrame(sample_ids, columns=["sample_id"])
+        cwd = os.getcwd()
+        print("cwd: ", cwd)
+        df["fastq_1"] = cwd + f"/output/{wildcards.dataset}/fastq/" + df.sample_id + "_1.fasta.gz"
+        df["fastq_2"] = cwd + f"/output/{wildcards.dataset}/fastq/" + df.sample_id + "_2.fasta.gz"
+        df.to_csv(output[0], "\t", index=False, header=False)
+
+
+rule prepare_chromosomes_file:
+    input:
+        "output/{dataset}/{reference}/reference.gtf"
+    output:
+        "output/{dataset}/{reference}/chromosomes.txt"
+    shell:
+        "cut -f1 {input} | sort | uniq > {output}"
+
+## ln -s /global/scratch/gbenegas/spliceVI-project/spliceVI-analysis/simulation/output/first_pass/unannotated_0/runs/splicevi/first_STAR_index first_STAR_index
+## ln -s /global/scratch/gbenegas/spliceVI-project/spliceVI-analysis/simulation/output/first_pass/unannotated_0/runs/splicevi/first_STAR_index second_STAR_index
+
+
+rule read_mapping:
+    input:
+        "output/{dataset}/fastq",
+        "output/{dataset}/fastq_paths.txt",
+        "output/{dataset}/{reference}/reference.gtf"
+    threads: workflow.cores
+    priority: 100
+    output:
+        expand("output/{{dataset}}/{{reference}}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam", sample_id=sample_ids)
+    shell:
+        "python -m scquint.quantification.run read_mapping/Snakefile --cores {threads} -d output/{wildcards.dataset}/{wildcards.reference}/mapping/ --config min_cells_per_intron=10 fastq_paths=../../fastq_paths.txt fasta_path={genome_fasta_path} gtf_path=../reference.gtf sjdb_overhang=99"
+#
+#
+#rule produce_bam_paths:
+#    input:
+#        expand("output/{{dataset}}/{{reference}}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam", sample_id=sample_ids)
+#    output:
+#        "output/{dataset}/{reference}/bam_paths.txt",
+#    run:
+#        cwd = os.getcwd()
+#        pd.DataFrame(dict(sample_id=sample_ids, bam_path=[f"{cwd}/output/{wildcards.dataset}/{wildcards.reference}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam" for sample_id in sample_ids])).to_csv(output[0], "\t", index=False, header=False)
+#
+#
+#rule produce_raw_bam_paths:
+#    input:
+#        "output/{dataset}/{reference}/bam_paths.txt",
+#    output:
+#        "output/{dataset}/{reference}/raw_bam_paths.txt",
+#    shell:
+#        "cut -f2 {input} > {output}"
+#
+#
+#rule transcriptome_assembly:
+#    input:
+#        "output/{dataset}/{reference}/raw_bam_paths.txt",
+#        "output/{dataset}/{reference}/reference.gtf",
+#    output:
+#        #"output/{dataset}/{reference}/assembly/output/assembly-unguided-only_annotated.gtf",
+#        "output/{dataset}/{reference}/assembly/output/assembly-unguided-merged_annotated.gtf",
+#        #"output/{dataset}/{reference}/assembly/output/assembly-guided-only_annotated.gtf",
+#        #"output/{dataset}/{reference}/assembly/output/assembly-guided-merged_annotated.gtf",
+#    threads: workflow.cores
+#    shell:
+#        "python -m spliceVI.quantification.run assembly/Snakefile --cores {threads} -d output/{wildcards.dataset}/{wildcards.reference}/assembly/ --config bam_paths=../raw_bam_paths.txt gtf_path=../reference.gtf"
+#
+#
+#rule present_original:
+#    input:
+#        "output/{dataset}/{reference}/reference.gtf"
+#    output:
+#        "output/{dataset}/{reference}/quantification/original/reference.gtf"
+#    shell:
+#        "cp {input} {output}"
+#
+#
+#
+#rule present_assembly:
+#    input:
+#        "output/{dataset}/{reference}/assembly/output/assembly-{anything}_annotated.gtf"
+#    output:
+#        "output/{dataset}/{reference}/quantification/assembly-{anything}/reference.gtf"
+#    shell:
+#        "cp {input} {output}"
+#
+#
+#rule splicevi_quantification:
+#    input:
+#        "output/{dataset}/{reference}/bam_paths.txt",
+#        "output/{dataset}/{reference}/chromosomes.txt",
+#        "output/{dataset}/{reference}/quantification/{mode}/reference.gtf",
+#    threads: workflow.cores
+#    output:
+#        expand("output/{{dataset}}/{{reference}}/quantification/{{mode}}/splicevi/output/splicing_{grouping}/adata.h5ad", grouping=groupings)
+#    shell:
+#        "python -m spliceVI.quantification.run introns/Snakefile --cores {threads} -d output/{wildcards.dataset}/{wildcards.reference}/quantification/{wildcards.mode}/splicevi/ --config min_cells_per_intron=10 bam_paths=../../../bam_paths.txt chromosomes_path=../../../chromosomes.txt fasta_path={genome_fasta_path} gtf_path=../reference.gtf chrom_sizes_path={chrom_sizes_path} sjdb_path=../../../mapping/first_STAR_index/sjdbList.out.tab"
+#
+#
+#rule extract_splicevi_quantification:
+#    input:
+#        "output/{dataset}/{reference}/quantification/{mode}/splicevi/output/splicing_{grouping}/adata.h5ad"
+#    output:
+#        "output/{dataset}/{reference}/quantification/{mode}/splicevi-{grouping}/adata.h5ad"
+#    shell:
+#        "cp {input} {output}"
+#
+#
+#rule get_gene_strand:
+#    input:
+#        "references/unannotated_0.gtf",
+#    output:
+#        "output/gene_strand.txt",
+#    run:
+#        df = pd.read_csv(
+#            input[0], '\t', header=None, comment="#",
+#            names=['chromosome', 'source', 'feature', 'start', 'end', 'score', 'strand', 'frame', 'attribute'],
+#        )
+#        df = df[df.feature=="gene"]
+#        df['gene_id'] = df.attribute.str.extract(r'gene_id "([^;]*)";')
+#        groupby = df.groupby("gene_id").strand.first()
+#        groupby.to_csv(output[0], "\t")
+#
+#
+#rule separate_introns:
+#    input:
+#        "output/{anything}/splicevi-nontransitive/adata.h5ad",
+#        "output/gene_strand.txt",
+#    output:
+#        "output/{anything}/introns-shared-acceptor/adata.h5ad",
+#        "output/{anything}/introns-shared-donor/adata.h5ad",
+#    run:
+#        adata = anndata.read_h5ad(input[0])
+#        groupby = adata.var.groupby("cluster").start.nunique().to_frame().rename(columns={"start": "n_start"})
+#        adata.var = adata.var.merge(groupby, how="left", left_on="cluster", right_index=True)
+#        gene_strand = pd.read_csv(input[1], "\t")
+#        adata.var = adata.var.merge(gene_strand, how="left", left_on="gene_id", right_on="gene_id")
+#
+#        def get_cluster_type(intron):
+#            if intron.strand == "+":
+#                return "shared_donor" if intron.n_start == 1 else "shared_acceptor"
+#            elif intron.strand == "-":
+#                return "shared_donor" if intron.n_start > 1 else "shared_acceptor"
+#            else:
+#                return "unknown"
+#
+#        adata.var["cluster_type"] = adata.var.apply(get_cluster_type, axis=1)
+#        adata.var.index = adata.var.index.astype(str)
+#        adata_shared_acceptor = adata[:, np.where(adata.var.cluster_type=="shared_acceptor")[0]].copy()
+#        adata_shared_acceptor = filter_min_cells_per_feature(adata_shared_acceptor, 1)  # just to relabel
+#        adata_shared_acceptor.write(output[0], compression="gzip")
+#        adata_shared_donor = adata[:, np.where(adata.var.cluster_type=="shared_donor")[0]].copy()
+#        adata_shared_donor = filter_min_cells_per_feature(adata_shared_donor, 1)  # just to relabel
+#        adata_shared_donor.write(output[1], compression="gzip")
+#
+
+#rule kallisto_quantification:
+#    input:
+#        "output/{dataset}/fastq_paths.txt",
+#        "output/{dataset}/fastq",
+#        "output/{dataset}/{reference}/quantification/{mode}/reference.gtf",
+#    output:
+#        "output/{dataset}/{reference}/quantification/{mode}/kallisto/adata.h5ad"
+#    threads: workflow.cores
+#    priority: 100
+#    shell:
+#        "python -m spliceVI.quantification.run kallisto/Snakefile --cores {threads} -d output/{wildcards.dataset}/{wildcards.reference}/quantification/{wildcards.mode}/kallisto/ --config genome_fasta_path={genome_fasta_path} gtf_path=../reference.gtf fastq_paths=../../../../fastq_paths.txt min_cells_per_isoform=10"
+#
+#
+#rule quantify_exons:
+#    input:
+#        "output/{dataset}/{reference}/bam_paths.txt",
+#        "output/{dataset}/{reference}/quantification/{mode}/reference.gtf",
+#    threads: workflow.cores
+#    priority: 100
+#    output:
+#        "output/{dataset}/{reference}/quantification/{mode}/exons/adata.h5ad"
+#    shell:
+#        "python -m spliceVI.quantification.run exons/Snakefile --cores all -d output/{wildcards.dataset}/{wildcards.reference}/quantification/{wildcards.mode}/exons/ --config min_cells_per_exon=10 gtf_path=../reference.gtf bam_paths=../../../bam_paths.txt"
+#
+#
+#rule quantify_bins:
+#    input:
+#        "output/{dataset}/{reference}/bam_paths.txt",
+#        "output/{dataset}/{reference}/quantification/{mode}/reference.gtf",
+#    threads: workflow.cores
+#    priority: 100
+#    output:
+#        "output/{dataset}/{reference}/quantification/{mode}/bins/adata.h5ad"
+#    shell:
+#        "python -m spliceVI.quantification.run bins/Snakefile --cores all -d output/{wildcards.dataset}/{wildcards.reference}/quantification/{wildcards.mode}/bins/ --config min_cells_per_bin=10 gtf_path=../reference.gtf bam_paths=../../../bam_paths.txt"
+#
+#
+#rule transform_adata_with_NMF:
+#    input:
+#        "output/{dataset}/{reference}/quantification/{mode}/bins/adata.h5ad"
+#    output:
+#        "output/{dataset}/{reference}/quantification/{mode}/bins-nmf/adata.h5ad"
+#    run:
+#        original_adata = anndata.read_h5ad(input[0])
+#        cluster_gene_id_map = original_adata.var.groupby("cluster").gene_id.first()
+#        clusters = []
+#        gene_ids = []
+#        Xs = []
+#        n_clusters = len(pd.unique(original_adata.var.cluster))
+#        print("n_clusters: ", n_clusters)
+#        new_cluster = 0
+#        for cluster in pd.unique(original_adata.var.cluster):
+#            print(cluster)
+#            gene_id = cluster_gene_id_map.loc[cluster]
+#            idx_features = np.where(original_adata.var.cluster==cluster)[0]
+#            X = original_adata.X[:, idx_features].toarray()
+#            for n_components in [2, 5, 10]:
+#                X_NMF = NMF(n_components=n_components, max_iter=10000, solver="mu", beta_loss="frobenius").fit_transform(X)
+#                n_cells, n_features = X_NMF.shape
+#                Xs.append(X_NMF)
+#                clusters.append(np.full(n_features, new_cluster))
+#                new_cluster += 1
+#                gene_ids.append(np.full(n_features, gene_id))
+#        X = np.hstack(Xs)
+#        clusters = np.concatenate(clusters)
+#        gene_ids = np.concatenate(gene_ids)
+#        var = pd.DataFrame(dict(cluster=clusters,gene_id=gene_ids))
+#        print(var)
+#        adata = anndata.AnnData(X=X, var=var, obs=original_adata.obs)
+#        print(adata.shape)
+#        print("new n_clusters: ", adata.var.cluster.unique().shape)
+#        adata.write(output[0])
+#
+##rule quantify_exons_and_introns:
+##    input:
+##        "output/{dataset}/{reference}/quantification/exons/adata.h5ad",
+##        "output/{dataset}/{reference}/quantification/splicevi-gene/adata.h5ad",
+##    output:
+##        "output/{dataset}/{reference}/quantification/exons-and-introns/adata.h5ad",
+##    run:
+##        adata_exons = anndata.read_h5ad(input[0])
+##        adata_introns = anndata.read_h5ad(input[1])
+##        adata_introns = adata_introns[:, ~adata_introns.var.annotated]
+##        print(adata_exons.shape, adata_introns.shape)
+##        adata = anndata.AnnData(
+##            X=sp_sparse.hstack([adata_exons.X, adata_introns.X], format="csr"),
+##            var=pd.concat([adata_exons.var, adata_introns.var], ignore_index=True)
+##        )
+##        print(adata.shape)
+##        adata.var.loc[:, "cluster"] = relabel(adata.var.gene_id)
+##        adata.var["original_cluster"] = adata.var.cluster
+##        adata.write(output[0], compression="gzip")
+#
+#
+#rule brie_quantification_part1:
+#    input:
+#        "output/{dataset}/{reference}/quantification/{mode}/reference.gtf",
+#    output:
+#        "output/{dataset}/{reference}/quantification/{mode}/brie/AS_events/SE.filtered.gff3.gz",
+#        "output/{dataset}/{reference}/quantification/{mode}/brie/AS_events/features.csv.gz",
+#    shell:
+#        """
+#        mkdir -p output/{wildcards.dataset}/{wildcards.reference}/quantification/{wildcards.mode}/brie &&
+#        cd output/{wildcards.dataset}/{wildcards.reference}/quantification/{wildcards.mode}/brie &&
+#        ~/miniconda2/bin/briekit-event -a ../reference.gtf -o AS_events &&
+#        ~/miniconda2/bin/briekit-event-filter -a AS_events/SE.gff3.gz --anno_ref=../reference.gtf -r {genome_fasta_path} &&
+#        ~/miniconda2/bin/briekit-factor -a AS_events/SE.filtered.gff3.gz -r {genome_fasta_path} -c {phastcons_path} -o AS_events/features.csv -p 1
+#        """
+#
+#
+#rule brie_quantification_part2:
+#    input:
+#        "output/{dataset}/{reference}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam"
+#    output:
+#        "output/{dataset}/{reference}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam.bai"
+#    shell:
+#        "samtools index {input}"
+#
+#
+#rule run_diff_spl_brie:
+#    input:
+#        indices=expand("output/{{dataset}}/{{reference}}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam.bai", sample_id=sample_ids),
+#        group_a=lambda wildcards: expand("output/{{dataset}}/{{reference}}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam", sample_id=sample_ids[np.arange(int(wildcards["n_samples"]))]),
+#        group_b=lambda wildcards: expand("output/{{dataset}}/{{reference}}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam", sample_id=sample_ids[np.arange(int(wildcards["n_samples"])) + n_total_samples_per_group]),
+#        event_info="output/{dataset}/{reference}/quantification/{mode}/brie/AS_events/SE.filtered.gff3.gz",
+#        sequence_features="output/{dataset}/{reference}/quantification/{mode}/brie/AS_events/features.csv.gz",
+#    params:
+#        group_a=lambda wildcards, input: ",".join(input.group_a),
+#        group_b=lambda wildcards, input: ",".join(input.group_b),
+#    threads: workflow.cores
+#    output:
+#        directory("output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/group_a/"),
+#        directory("output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/group_b/"),
+#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/events.diff.tsv",
+#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/events.diff.rank.tsv",
+#    shell:
+#        """
+#        brie1 -a {input.event_info} -s {params.group_a} -f {input.sequence_features} -o {output[0]} -p {threads} &&
+#        brie1 -a {input.event_info} -s {params.group_b} -f {input.sequence_features} -o {output[1]} -p {threads} &&
+#        brie1-diff -i {output[0]}/samples.csv.gz,{output[1]}/samples.csv.gz -o {output[2]} -p {threads} --minBF 0
+#        """
+#
+#rule aggregate_diff_spl_brie:
+#    input:
+#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/events.diff.rank.tsv",
+#    output:
+#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/genes.csv",
+#    run:
+#        print("starting aggregation")
+#        df = pd.read_csv(input[0], "\t")
+#        df.gene_id = df.gene_id.str.split(".").str[0]
+#        res = df.groupby("gene_id").mean_BF.sum()
+#        res = res.reset_index()
+#        res["p_value_gene"] = -res.mean_BF  # check if this works
+#        res["p_value_gene_adj"] = res.p_value_gene
+#        res = res.drop(columns=["mean_BF"])
+#        res.to_csv(output[0], "\t", index=False)
+#
+#
+##rule scats_make_metafile:
+##    input:
+##        "output/{dataset}/{reference}/bam_paths.txt",
+##    output:
+##        "output/{dataset}/{reference}/quantification/{mode}/scats/metafile_{n_samples}",
+##    run:
+##        df = pd.read_csv(input[0], "\t", header=None, names=["sample_id", "bam_path"])
+##        if wildcards["n_samples"] == "all":
+##            n_samples = n_total_samples_per_group
+##        else:
+##            n_samples = int(wildcards["n_samples"])
+##        cell_idx_a = np.arange(n_samples)
+##        cell_idx_b = np.arange(n_samples) + n_total_samples_per_group
+##        df.loc[cell_idx_a, "condition"] = "A"
+##        df.loc[cell_idx_b, "condition"] = "B"
+##        df["UB"] = "UB"
+##        df["CB"] = "CB"
+##        print(df)
+##        df.to_csv(output[0], "\t", header=False, index=False, columns=["sample_id", "condition", "bam_path", "UB", "CB"])
+##
+##
+##rule scats_process_gtf:
+##    input:
+##        "output/{dataset}/{reference}/quantification/{mode}/reference.gtf",
+##        "output/{dataset}/{reference}/quantification/{mode}/scats/metafile_all",
+##    output:
+##        "output/{dataset}/{reference}/quantification/{mode}/scats/reference.genePred",
+##        "output/{dataset}/{reference}/quantification/{mode}/scats/reference.refFile",
+##        "output/{dataset}/{reference}/quantification/{mode}/scats/reference.refgene",
+##        "output/{dataset}/{reference}/quantification/{mode}/scats/reference.gpinfo",
+##        expand("output/{{dataset}}/{{reference}}/quantification/{{mode}}/scats/tmp/count_script/count_{sample_id}.sh", sample_id=sample_ids),
+##    shell:
+##        """
+##        cd output/{wildcards.dataset}/{wildcards.reference}/quantification/{wildcards.mode}/scats/ &&
+##        gtfToGenePred -genePredExt ../reference.gtf reference.genePred &&
+##        awk '{{print "1 \t" $0}}' reference.genePred > reference.refFile &&
+##        python ../../../../../../SCATS/SCATS.py -task refgene -ref reference.refFile -out reference.refgene &&
+##        python ../../../../../../SCATS/SCATS.py -task group -refgene reference.refgene -out reference.gpinfo &&
+##        python ../../../../../../SCATS/SCATS.py -task count -meta metafile_all -refgene reference.refgene -gpinfo reference.gpinfo -umi no -onebam no
+##        """
+##
+##
+##rule scats_quantify:
+##    input:
+##        "output/{dataset}/{reference}/quantification/{mode}/scats/tmp/count_script/count_{sample_id}.sh",
+##    output:
+##        "output/{dataset}/{reference}/quantification/{mode}/scats/tmp/count_script/count_{sample_id}.out",
+##    shell:
+##        "bash {input}"
+#
+## python ../../../../../../SCATS/SCATS.py -task das -ncore 20 -meta metafile_all -gpinfo reference.gpinfo
+## /global/scratch/gbenegas/spliceVI-project/spliceVI-analysis/benchmark/simulation/output/1.5_0.33_0.11_100/unannotated_0/quantification/original/scats/tmp/das_script
+##(base) [gbenegas@n0159 das_script]$ ls
+##das_A_B.sh  data
+#
+#
+rule run_diff_spl:
+    input:
+        "output/{dataset}/{reference}/quantification/{mode}/{quantification}/adata.h5ad"
+    output:
+        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_{quantification,kallisto|introns-shared-acceptor|splicevi-gene|splicevi-nontransitive|splicevi-transitive|bins|bins-nmf|exons|exons-and-introns|exons-and-introns-vae}_{variant}/clusters.csv",
+        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_{quantification}_{variant}/introns.csv",
+    resources: gpu=1
+    priority: 50
+    run:
+        adata = anndata.read_h5ad(input[0])
+        adata.var["original_cluster"] = adata.var.cluster
+        if wildcards["n_samples"] == "null":
+            cell_idx_a = np.arange(n_total_samples_per_group//2)
+            cell_idx_b = np.arange(n_total_samples_per_group//2, n_total_samples_per_group)
+        else:
+            cell_idx_a = np.arange(int(wildcards["n_samples"]))
+            cell_idx_b = np.arange(int(wildcards["n_samples"])) + n_total_samples_per_group
+
+        #try:
+        #    freer_gpu = GPUtil.getAvailable(order = 'memory', attempts=3)[0]
+        #except:
+        #    freer_gpu = np.random.randint(4)
+        #device = f"cuda:{freer_gpu}"
+        device = f"cuda:0"
+        print(device)
+        #df_cluster, df_intron = compute_splicing_p_value(
+        #    adata,
+        #    wildcards["variant"],
+        #    cell_idx_a,
+        #    cell_idx_b,
+        #    device=device,
+        #    n_permutations=10000,
+        #)
+        #cluster_gene_id_map = adata.var.groupby("cluster").gene_id.first()
+        #df_cluster["gene_id"] = cluster_gene_id_map.loc[df_cluster.cluster].values
+        #df_cluster.to_csv(output[0], '\t', index=False)
+        #df_intron.to_csv(output[1], '\t', index=False)
+
+        diff_spl_clusters, diff_spl_introns = run_differential_splicing(
+            adata, wildcards["variant"], cell_idx_a, cell_idx_b, device=device, n_permutations=10000,
+        )
+        diff_spl_clusters.to_csv(output[0], '\t')
+        diff_spl_introns.to_csv(output[1], '\t')
+
+
+rule aggregate_diff_spl:
+    input:
+        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{method}/clusters.csv",
+    output:
+        #"output/{dataset}/{reference}/differential_splicing/{n_samples}/{method,^((?!brie).)*$}/genes.csv",
+        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{method}/genes.csv",
+    run:
+        df = pd.read_csv(input[0], "\t")
+
+        def multiple_testing_correction(p_values):
+            reject, pvals_corrected, _, _ = multipletests(
+                p_values.values, 0.05, "fdr_bh"
+            )
+            res = np.min(pvals_corrected)
+            return res
+
+        res = df.groupby("gene_id").p_value.agg(multiple_testing_correction).to_frame().reset_index().rename(columns={"p_value": "p_value_gene"})
+        reject, pvals_corrected, _, _ = multipletests(
+            res.p_value_gene.values, 0.05, "fdr_bh"
+        )
+        res["p_value_gene_adj"] = pvals_corrected
+        res.to_csv(output[0], "\t", index=False)
+
+
+rule dataset_results:
+    input:
+        "output/{dataset}/simulation_params.txt",
+        #"output/{dataset}/genes_with_overlapping_introns.txt",
+        "output/{dataset}/genes_with_overlapping_introns_shared_acceptor.txt",
+        expand("output/{{dataset}}/{{reference}}/differential_splicing/{{n_samples}}/{method}/genes.csv", method=methods)
+    output:
+        "output/{dataset}/{reference}/results/{n_samples}/all.txt",
+        "output/{dataset}/{reference}/results/{n_samples}/summary.txt",
+    run:
+        sim_params = pd.read_csv(input[0], "\t")
+        genes_to_keep = pd.read_csv(input[1], "\t", header=None).values.ravel()
+        print(sim_params.shape)
+        sim_params = sim_params[sim_params.gene_id.isin(genes_to_keep)]
+        print(sim_params.shape)
+        df = sim_params.groupby("gene_id").agg({"fold_change_a": "max", "fold_change_b": "max", "differential": "any"})
+        print("df.differential.mean(): ", df.differential.mean())
+        #raise Exception("debug")
+        _, _, _, seed = wildcards["dataset"].split("_")
+        seed = int(seed)
+
+        #baseline_method = None
+        #baseline_method = "original_splicevi-transitive_permutation-Euclidean"
+
+        summary = []
+        for method in methods:
+            res = pd.read_csv(f"output/{wildcards['dataset']}/{wildcards['reference']}/differential_splicing/{wildcards['n_samples']}/{method}/genes.csv", "\t", index_col=0)
+            df[method] = res.reindex(df.index.values).p_value_gene_adj
+
+            # option 1: replace untested with 1.0
+            #df[method] = df[method].fillna(1.0)
+
+            # option 2: fill untested at random as sifnificant/non-significant
+            np.random.seed(seed)
+            min_value = df[method].dropna().min() - 1.0
+            max_value = df[method].dropna().max() + 1.0
+            def fill_at_random(x):
+                if pd.isnull(x):
+                    if flip_coin():
+                        return min_value
+                    else:
+                        return max_value
+                else:
+                    return x
+            df[method] = df[method].apply(fill_at_random)
+
+        #df = df.dropna()
+        for method in methods:
+            auc = roc_auc_score(~df.differential.astype(int), df[method])
+            summary.append([method, auc])
+        summary = pd.DataFrame(summary, columns=["Method", "AUC"])
+        df.to_csv(output[0], "\t")
+        summary.to_csv(output[1], "\t", index=False)
+
+
+rule overall_results:
+    input:
+        expand("output/{dataset}/{reference}/results/{n_samples}/summary.txt", dataset=datasets, reference=references, n_samples=n_test_samples_per_group)
+    output:
+        "output/results/summary.txt"
+    run:
+        overall_summary = []
+        for fold_change, coverage, size_fraction, seed, reference, n_samples in itertools.product(fold_changes, coverages, size_fractions, seeds, references, n_test_samples_per_group):
+            path = f"output/{fold_change}_{coverage}_{size_fraction}_{seed}/{reference}/results/{n_samples}/summary.txt"
+            summary = pd.read_csv(path, "\t")
+            summary["Fold change"] = fold_change
+            summary["Coverage"] = coverage
+            summary["size_fraction"] = size_fraction
+            summary["seed"] = seed
+            summary["Reference"] = reference
+            summary["N cells"] = n_samples
+            overall_summary.append(summary)
+        overall_summary = pd.concat(overall_summary, ignore_index=True)
+        overall_summary.to_csv(output[0], "\t", index=False)
+
+
+rule plot_overall_results:
+    input:
+        "output/results/summary.txt"
+    output:
+        "output/results/all.pdf",
+    run:
+        df = pd.read_csv(input[0], "\t")
+        df = df.replace("unannotated_0", "Annotated")
+        df = df.replace("unannotated_de", "Unannotated")
+        df = df.replace("original_brie", "BRIE")
+        df = df.replace("original_kallisto_permutation-Euclidean", "kallisto")
+        df = df.replace("original_bins-nmf_permutation-Euclidean", "ODEGRfinder")
+        df = df.replace("assembly-unguided-merged_exons_permutation-Euclidean", "Ours (reassembled exons)")
+        df = df.replace("original_splicevi-gene_permutation-Euclidean", "Ours (introns gene)")
+        #df = df.replace("original_splicevi-transitive_permutation-Euclidean", "Ours (introns local)")
+        #df = df.replace("original_splicevi-nontransitive_permutation-Euclidean", "Alternative introns (ours)")
+        df = df.replace("original_introns-shared-acceptor_permutation-Euclidean", "Alt. introns shared 3' (ours)")
+
+        #df = df[df.Method.str.startswith("Ours")]
+        #df = df[df.Method.isin(["BRIE", "kallisto", "ODEGRfinder", "Alternative introns (ours)"])]
+        df = df[df.Method.isin(["BRIE", "kallisto", "ODEGRfinder", "Alt. introns shared 3' (ours)"])]
+        df = df.rename(columns={"Reference": "DE transcript"})
+        #df = df[df.Method.isin(["BRIE", "kallisto", "ODEGRfinder", "Ours (reassembled exons)"])]
+
+        # fig, axarr = plt.subplots(len(coverages), len(size_fractions), figsize=(6*len(coverages), 6*len(size_fractions)))
+
+
+        #fig, axarr = plt.subplots(len(coverages), len(size_fractions), figsize=(5*len(coverages), 5*len(size_fractions)))
+        #for i, coverage in enumerate(coverages):
+        #    for j, size_fraction in enumerate(size_fractions):
+        #        g = sns.lineplot(
+        #            x="N cells", y="AUC", hue="Method", style="DE transcript",
+        #            ax=axarr[i,j],
+        #            data=df[(df.Coverage==coverage) & (df.size_fraction==size_fraction)],
+        #            legend="auto" if i==0 and j==len(size_fractions)-1 else False,
+        #            err_style="bars",
+        #        )
+        #        g.set(xticks=n_test_samples_per_group)
+        #        g.set(ylim=(0.0, 1))
+        #        g.set(title=f"Base cov. {coverage}X; Size_fraction {size_fraction}")
+        #        # g.despine(left=True)
+        #plt.legend(bbox_to_anchor=(1.01, 1),borderaxespad=0)
+        df["var_coeff"] = (1 + 1 / df.size_fraction).astype(int)
+        print(df.var_coeff.unique())
+        g = sns.relplot(
+            data=df,
+            x="N cells",
+            y="AUC",
+            hue="Method",
+            style="DE transcript",
+            col="var_coeff",
+            col_order=[21, 10, 4],
+            row="Coverage",
+            facet_kws=dict(margin_titles=True),
+            kind="line",
+            err_style="bars",
+            height=3,
+            aspect=1.0,
+        )
+        g.set_titles(col_template="Variance = {col_name} * mean", row_template="Base coverage = {row_name}x")
+        g.set(xticks=n_test_samples_per_group)
+        plt.savefig(output[0], bbox_inches='tight')
+#
+#
+#rule plot_null_dist:
+#    input:
+#        expand("output/{{dataset}}/{{reference}}/differential_splicing/null/{method}/genes.csv", method=methods)
+#    output:
+#        "output/{dataset}/{reference}/results/null/p_value_dist.pdf"
+#    run:
+#        plt.plot([0, 1], [0, 1], color="gray", linestyle="--")
+#        ax = plt.gca()
+#        for method in methods:
+#            path = f"output/{wildcards['dataset']}/{wildcards['reference']}/differential_splicing/null/{method}/genes.csv"
+#            df = pd.read_csv(path, "\t")
+#            sns.ecdfplot(df.p_value_gene, ax=ax, label=method)
+#        plt.xlabel("p-value")
+#        plt.ylabel("cdf")
+#        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+#        plt.xlim([0, 1])
+#        plt.ylim([0, 1])
+#        plt.gca().set_aspect('equal', adjustable='box')
+#        plt.tight_layout()
+#        plt.draw()
+#        plt.savefig(output[0])
