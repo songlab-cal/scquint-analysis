@@ -146,11 +146,13 @@ quantifications_gaba_subset = ["gene-expression", "kallisto", "bins", "exons", "
 
 rule all:
     input:
+        "output/comparison/ion_channels/cell_type.pdf",
         #expand("output/bam_regions/Mbnl2/{cell_type}/merged.bam", cell_type=genes_bam_merge["Mbnl2"]["cell_types"]),
         #expand("output/bam_regions/Khdrbs3/{cell_type}/merged.bam", cell_type=genes_bam_merge["Khdrbs3"]["cell_types"]),
         #'output/diff_spl/class_label/marker_introns.svg',
         #'output/diff_spl/subclass_label/marker_introns.svg',
-        #"output/intron_coordinates.txt",
+        #"output/intron_coordinates.tsv",
+        #"output/regression/30_dir-multi-l1/intron_coordinates.tsv",
         #expand('output/diff_spl/class_label/{class_label}/splicing.clusters.tsv', class_label=["Glutamatergic", "GABAergic"]),
         #'output/diff_spl/null/splicing.clusters.tsv',
         #"output/dimensionality_reduction/all/introns-shared-acceptor/vae_hyperopt/latent.txt",
@@ -175,7 +177,7 @@ rule all:
         #"output/comparison/gaba_subset/subclass_label.svg",
         #"output/quantification/SE-shared-donor/adata_annotated.h5ad",
         #"output/comparison/gaba_subset/classification_results_plots/",
-        expand('output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.significant.tsv', subclass_label=subclass_labels),
+        #expand('output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.significant.tsv', subclass_label=subclass_labels),
         #expand('output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.tsv', subclass_label=subclass_labels),
         #expand('output/diff_spl/subclass_label/{subclass_label}/splicing.clusters.tsv', subclass_label=["Pvalb"]),
         #"output/adata_cellxgene.h5ad",
@@ -2122,6 +2124,7 @@ rule make_latex_table_intron_coordinates:
         "output/subclass_label_marker_introns.txt",
     output:
         "output/intron_coordinates.txt",
+        "output/intron_coordinates.tsv",
     run:
         id_coordinate_mapping = pd.read_csv(input[0], "\t", index_col=1)
         introns = pd.read_csv(input[1], "\t", index_col=0).index.values.astype(str).ravel().tolist() + pd.read_csv(input[2], "\t", index_col=0).index.values.astype(str).ravel().tolist()
@@ -2132,6 +2135,7 @@ rule make_latex_table_intron_coordinates:
         table["Intron coordinate"] = id_coordinate_mapping.loc[intron_id].coordinates.values
         print(table)
         table.sort_values("Intron id").to_latex(output[0], index=False)
+        table.sort_values("Intron id").to_csv(output[1], sep="\t", index=False)
 
 
 rule cluster_cells:
@@ -2520,13 +2524,14 @@ rule plot_regression_clusters_coefficients:
         pd.DataFrame(coefficients_reordered.columns.values).to_csv(output[3], index=False, header=False)
 
 
-rule make_latex_table_intron_coordinates:
+rule make_latex_table_intron_coordinates_anything:
     input:
         "output/intron_id.tsv",
         "output/{anything}/coefficients_clustering_cols.txt",
         "output/{anything}/coefficients_clustering_rows.txt",
     output:
         "output/{anything}/intron_coordinates.txt",
+        "output/{anything}/intron_coordinates.tsv",
     run:
         id_coordinate_mapping = pd.read_csv(input[0], "\t", index_col=1)
         introns = pd.read_csv(input[1], header=None).values.astype(str).ravel().tolist() + pd.read_csv(input[2], header=None).values.astype(str).ravel().tolist()
@@ -2537,3 +2542,107 @@ rule make_latex_table_intron_coordinates:
         table["Intron coordinate"] = id_coordinate_mapping.loc[intron_id].coordinates.values
         print(table)
         table.sort_values("Intron id").to_latex(output[0], index=False)
+        table.sort_values("Intron id").to_csv(output[1], sep="\t", index=False)
+
+
+rule dimensionality_reduction_ion_channels:
+    input:
+        "output/quantification/gene-expression/adata_annotated.h5ad",
+        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+        "output/gene_name.txt",
+    output:
+        "output/comparison/ion_channels/cell_type.pdf",
+    run:
+        gene_name_id = pd.read_csv(input[2], "\t", index_col=1)
+        gene_name_id = gene_name_id[
+            (gene_name_id.index.str.startswith("Cacna")) |
+            (gene_name_id.index.str.startswith("Catsper")) |
+            (gene_name_id.index.str.startswith("Cngb")) |
+            (gene_name_id.index.str.startswith("Hcn")) |
+            (gene_name_id.index.str.startswith("Kcn")) |
+            (gene_name_id.index.str.startswith("Mcoln1")) |
+            (gene_name_id.index.str.startswith("Pkd2")) |
+            (gene_name_id.index.str.startswith("Scn")) |
+            (gene_name_id.index.str.startswith("Tpcn")) |
+            (gene_name_id.index.str.startswith("Trpc")) |
+            (gene_name_id.index.str.startswith("Trpm")) |
+            (gene_name_id.index.str.startswith("Trpv"))
+        ]
+        gene_ids = gene_name_id.gene_id.values
+
+        adata_exp = anndata.read_h5ad(input[0])
+        adata_exp.var["gene_id"] = adata_exp.var.index.values
+        adata_spl = anndata.read_h5ad(input[1])
+        assert((adata_exp.obs.index == adata_spl.obs.index).all())
+
+        sc.pp.filter_genes(adata_exp, min_cells=100)
+        sc.pp.normalize_total(adata_exp, target_sum=1e4)
+        sc.pp.log1p(adata_exp)
+        adata_exp = adata_exp[:, adata_exp.var.gene_id.isin(gene_ids)]
+        X_exp = adata_exp.X.toarray()
+
+        adata_spl = adata_spl[:, adata_spl.var.gene_id.isin(gene_ids)]
+        adata_spl = filter_min_cells_per_feature(adata_spl, 100)
+        X_spl = group_normalize(adata_spl.X.toarray(), adata_spl.var.cluster.values, smooth=True)
+        intron_clusters = adata_spl.var.cluster.values
+        all_intron_clusters = np.unique(intron_clusters)
+        first_indices_dict = {}
+        for i, c in enumerate(intron_clusters):
+            if c not in first_indices_dict:
+                first_indices_dict[c] = i
+        first_indices = np.array([first_indices_dict[c] for c in all_intron_clusters])
+        X_spl = np.delete(X_spl, first_indices, axis=1)
+
+        X_exp_spl = np.hstack((X_exp, X_spl))
+
+        print(X_exp.shape, X_spl.shape, X_exp_spl.shape)
+
+        dfs = []
+        names = ["Expression", "Splicing", "Expression + Splicing"]
+        for X, name in zip([X_exp, X_spl, X_exp_spl], names):
+            latent = PCA(n_components=10).fit_transform(X)
+
+            df = adata_exp.obs.copy()
+            proj = UMAP(min_dist=0.5, n_neighbors=15, random_state=42).fit_transform(latent)
+            df["UMAP 1"] = proj[:, 0]
+            df["UMAP 2"] = proj[:, 1]
+            df["Quantification"] = name
+            dfs.append(df)
+        df = pd.concat(dfs)
+        g = sns.relplot(
+            data=df,
+            x="UMAP 1",
+            y="UMAP 2",
+            hue="subclass_label",
+            col="Quantification",
+            col_order=names,
+            kind="scatter",
+            facet_kws={'sharey': False, 'sharex': False},
+            height=3,
+            palette="tab10",
+            edgecolor="none",
+            s=4,
+        )
+        g.set_titles(col_template="{col_name}")
+        g.fig.subplots_adjust(wspace=0.1)
+        for ax in g.axes.flat:
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_ylabel("UMAP 2")
+        sns.despine()
+        plt.savefig(output[0], bbox_inches='tight')
+#
+#
+#rule dimensionality_reduction_all_expression:
+#    input:
+#        "output/quantification/gene-expression/adata_annotated.h5ad",
+#    output:
+#        "output/dimensionality_reduction/all/gene-expression/pca_{k}/latent.txt",
+#    run:
+#        adata = anndata.read_h5ad(input[0])
+#        sc.pp.filter_genes(adata, min_cells=100)
+#        sc.pp.normalize_total(adata, target_sum=1e4)
+#        sc.pp.log1p(adata)
+#        X = adata.X.toarray()
+#        latent = PCA(n_components=int(wildcards["k"])).fit_transform(X)
+#        np.savetxt(output[0], latent)
