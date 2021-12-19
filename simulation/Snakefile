@@ -21,6 +21,7 @@ from tqdm import tqdm
 #import GPUtil
 
 import anndata
+from scquint.differential_splicing import run_differential_splicing
 #from spliceVI.differential_splicing import run_differential_splicing
 # from spliceVI.dimensionality_reduction import Dataset, VAE, UnsupervisedTrainer, Posterior
 #from spliceVI.utils import relabel, group_normalize, filter_min_cells_per_feature
@@ -32,7 +33,7 @@ sjdb_path = "/global/scratch/projects/fc_songlab/gbenegas/genomes/mus_musculus/m
 genome_fasta_path = "/global/scratch/projects/fc_songlab/gbenegas/genomes/mus_musculus/mm10/mm10.fa"
 
 n_total_samples_per_group = 300
-n_test_samples_per_group = [300] #[100, 200, 300]
+n_test_samples_per_group = [100, 200, 300]
 
 repeats = [str(x).zfill(2) if x < 10 else str(x) for x in np.arange(1, 2*n_total_samples_per_group+1)]
 sample_ids = expand("sample_{repeat}", repeat=repeats)
@@ -44,14 +45,15 @@ subset_genes_seed = 42
 #groupings = ["nontransitive", "transitive", "gene"]
 groupings = ["introns-shared-acceptor"]
 methods = [
-    "original_kallisto_permutation-Euclidean",
+    "scQuint",
+    #"original_kallisto_permutation-Euclidean",
     #"assembly-unguided-merged_exons_permutation-Euclidean",
-    "original_bins-nmf_permutation-Euclidean",
-    "original_brie",
+    #"original_bins-nmf_permutation-Euclidean",
+    #"original_brie",
     #"original_splicevi-gene_permutation-Euclidean",
     #"original_splicevi-transitive_permutation-Euclidean",
     #"original_splicevi-nontransitive_permutation-Euclidean",
-    "original_introns-shared-acceptor_permutation-Euclidean",
+    #"original_introns-shared-acceptor_permutation-Euclidean",
     #"original_exons_permutation-Euclidean",
     #"assembly-unguided-only_exons_permutation-Euclidean",
     #"assembly-guided-only_exons_permutation-Euclidean",
@@ -81,16 +83,18 @@ def flip_coin():
 
 rule all:
     input:
-        expand("output/{dataset}/{reference}/bam_paths.txt", dataset=datasets, reference=references),
+        "output/results/all.pdf",
+        #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/clusters.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
+        #expand("output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
+        #expand("output/{dataset}/{reference}/bam_paths.txt", dataset=datasets, reference=references),
         #expand("output/{dataset}/{reference}/reference.gtf", dataset=datasets, reference=references),
         #expand("output/{dataset}/fastq", dataset=datasets),
         #expand("output/{dataset}/fastq", dataset=datasets),
-        #"output/results/all.pdf",
         #"output/1.5_0.33_0.11_100/unannotated_0/results/null/p_value_dist.pdf",
         #expand("output/{dataset}/{reference}/quantification/original/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
         #expand("output/{dataset}/{reference}/quantification/original/{quantification}/adata.h5ad", dataset=datasets, reference=references, quantification=["kallisto", "bins-nmf", "splicevi-nontransitive"]),
         #expand("output/{dataset}/{reference}/quantification/assembly-unguided-merged/exons/adata.h5ad", dataset=datasets, reference=references),
-        #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/original_brie/genes.csv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group)
+        #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/original_brie/genes.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group)
         # expand("output/{dataset}/{reference}/assembly_annotated.gtf", dataset=datasets, reference=references)
         #expand("output/{dataset}/{reference}/assembly.gtf", dataset=datasets, reference=references)
         # expand("output/{dataset}/{reference}/quantification/{mode}/{quantification}/adata.h5ad", dataset=datasets, reference=references, quantification=["kallisto", "exons", "bins"], mode=["original", "reconstructed"])
@@ -136,7 +140,7 @@ rule filter_gtf:
         print(df.shape)
 
         df_exon = df_exon[df_exon.gene_id.isin(genes_to_include)]
-        df = df[(df.transcript_id.isin(df_exon.transcript_id.unique()))]
+        df = df[(df.transcript_id.isin(df_exon.transcript_id.unique())) | (df.feature=="gene")]
 
         # here should filter to transcript feature, to have no dups
         transcripts_to_include = df[df.feature=="transcript"].groupby("gene_id").transcript_id.sample(n=subset_transcripts, replace=False, random_state=subset_genes_seed).values
@@ -331,9 +335,18 @@ rule read_mapping:
         "python -m scquint.quantification.run read_mapping/Snakefile --cores {threads} -d output/{wildcards.dataset}/{wildcards.reference}/mapping/ --config min_cells_per_intron=10 fastq_paths=../../fastq_paths.txt fasta_path={genome_fasta_path} gtf_path=../reference.gtf sjdb_overhang=99"
 
 
+rule index_bam:
+    input:
+        "output/{dataset}/{reference}/mapping/rmdup/{sample_id}/Aligned.rmdup.out.bam",
+    output:
+        "output/{dataset}/{reference}/mapping/rmdup/{sample_id}/Aligned.rmdup.out.bam.bai",
+    shell:
+        "samtools index {input}"
+
+
 rule produce_bam_paths:
     input:
-        expand("output/{{dataset}}/{{reference}}/mapping/rmdup/{sample_id}/Aligned.rmdup.out.bam", sample_id=sample_ids)
+        expand("output/{{dataset}}/{{reference}}/mapping/rmdup/{sample_id}/Aligned.rmdup.out.bam.bai", sample_id=sample_ids)
     output:
         "output/{dataset}/{reference}/bam_paths.txt",
     run:
@@ -348,7 +361,7 @@ rule scQuint_quantification:
         "output/{dataset}/{reference}/reference.gtf",
     threads: workflow.cores
     output:
-        expand("output/{{dataset}}/{{reference}}/quantification/scQuint/output/splicing_{grouping}/adata.h5ad", grouping=groupings),
+        expand("output/{{dataset}}/{{reference}}/quantification/scQuint/output/{grouping}/adata.h5ad", grouping=groupings),
     shell:
         "python -m scquint.quantification.run introns/Snakefile --cores {threads} -d output/{wildcards.dataset}/{wildcards.reference}/quantification/scQuint/ --config min_cells_per_intron=10 bam_paths=../../bam_paths.txt chromosomes_path=../../chromosomes.txt fasta_path={genome_fasta_path} gtf_path=../../reference.gtf chrom_sizes_path={chrom_sizes_path} sjdb_path=../../mapping/first_STAR_index/sjdbList.out.tab"
 
@@ -515,7 +528,7 @@ rule get_gene_strand:
 #    input:
 #        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/events.diff.rank.tsv",
 #    output:
-#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/genes.csv",
+#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/genes.tsv",
 #    run:
 #        print("starting aggregation")
 #        df = pd.read_csv(input[0], "\t")
@@ -584,16 +597,16 @@ rule get_gene_strand:
 ##das_A_B.sh  data
 #
 #
-rule run_diff_spl:
+rule scQuint_diff_spl:
     input:
-        "output/{dataset}/{reference}/quantification/{mode}/{quantification}/adata.h5ad"
+        "output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad",
     output:
-        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_{quantification,kallisto|introns-shared-acceptor|splicevi-gene|splicevi-nontransitive|splicevi-transitive|bins|bins-nmf|exons|exons-and-introns|exons-and-introns-vae}_{variant}/clusters.csv",
-        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_{quantification}_{variant}/introns.csv",
-    resources: gpu=1
-    priority: 50
+        "output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/clusters.tsv",
+        "output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/introns.tsv",
+    threads: 1
     run:
         adata = anndata.read_h5ad(input[0])
+        print(adata)
         adata.var["original_cluster"] = adata.var.cluster
         if wildcards["n_samples"] == "null":
             cell_idx_a = np.arange(n_total_samples_per_group//2)
@@ -602,39 +615,64 @@ rule run_diff_spl:
             cell_idx_a = np.arange(int(wildcards["n_samples"]))
             cell_idx_b = np.arange(int(wildcards["n_samples"])) + n_total_samples_per_group
 
-        #try:
-        #    freer_gpu = GPUtil.getAvailable(order = 'memory', attempts=3)[0]
-        #except:
-        #    freer_gpu = np.random.randint(4)
-        #device = f"cuda:{freer_gpu}"
-        device = f"cuda:0"
-        print(device)
-        #df_cluster, df_intron = compute_splicing_p_value(
-        #    adata,
-        #    wildcards["variant"],
-        #    cell_idx_a,
-        #    cell_idx_b,
-        #    device=device,
-        #    n_permutations=10000,
-        #)
-        #cluster_gene_id_map = adata.var.groupby("cluster").gene_id.first()
-        #df_cluster["gene_id"] = cluster_gene_id_map.loc[df_cluster.cluster].values
-        #df_cluster.to_csv(output[0], '\t', index=False)
-        #df_intron.to_csv(output[1], '\t', index=False)
-
         diff_spl_clusters, diff_spl_introns = run_differential_splicing(
-            adata, wildcards["variant"], cell_idx_a, cell_idx_b, device=device, n_permutations=10000,
+            adata, cell_idx_a, cell_idx_b, min_cells_per_cluster=30, min_total_cells_per_intron=30,
+            n_jobs=1, do_recluster=False,
         )
         diff_spl_clusters.to_csv(output[0], '\t')
         diff_spl_introns.to_csv(output[1], '\t')
 
 
+#rule run_diff_spl:
+#    input:
+#        "output/{dataset}/{reference}/quantification/{mode}/{quantification}/adata.h5ad"
+#    output:
+#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_{quantification,kallisto|introns-shared-acceptor|splicevi-gene|splicevi-nontransitive|splicevi-transitive|bins|bins-nmf|exons|exons-and-introns|exons-and-introns-vae}_{variant}/clusters.csv",
+#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_{quantification}_{variant}/introns.csv",
+#    resources: gpu=1
+#    priority: 50
+#    run:
+#        adata = anndata.read_h5ad(input[0])
+#        adata.var["original_cluster"] = adata.var.cluster
+#        if wildcards["n_samples"] == "null":
+#            cell_idx_a = np.arange(n_total_samples_per_group//2)
+#            cell_idx_b = np.arange(n_total_samples_per_group//2, n_total_samples_per_group)
+#        else:
+#            cell_idx_a = np.arange(int(wildcards["n_samples"]))
+#            cell_idx_b = np.arange(int(wildcards["n_samples"])) + n_total_samples_per_group
+#
+#        #try:
+#        #    freer_gpu = GPUtil.getAvailable(order = 'memory', attempts=3)[0]
+#        #except:
+#        #    freer_gpu = np.random.randint(4)
+#        #device = f"cuda:{freer_gpu}"
+#        device = f"cuda:0"
+#        print(device)
+#        #df_cluster, df_intron = compute_splicing_p_value(
+#        #    adata,
+#        #    wildcards["variant"],
+#        #    cell_idx_a,
+#        #    cell_idx_b,
+#        #    device=device,
+#        #    n_permutations=10000,
+#        #)
+#        #cluster_gene_id_map = adata.var.groupby("cluster").gene_id.first()
+#        #df_cluster["gene_id"] = cluster_gene_id_map.loc[df_cluster.cluster].values
+#        #df_cluster.to_csv(output[0], '\t', index=False)
+#        #df_intron.to_csv(output[1], '\t', index=False)
+#
+#        diff_spl_clusters, diff_spl_introns = run_differential_splicing(
+#            adata, wildcards["variant"], cell_idx_a, cell_idx_b, device=device, n_permutations=10000,
+#        )
+#        diff_spl_clusters.to_csv(output[0], '\t')
+#        diff_spl_introns.to_csv(output[1], '\t')
+#
+
 rule aggregate_diff_spl:
     input:
-        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{method}/clusters.csv",
+        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{method}/clusters.tsv",
     output:
-        #"output/{dataset}/{reference}/differential_splicing/{n_samples}/{method,^((?!brie).)*$}/genes.csv",
-        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{method}/genes.csv",
+        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{method}/genes.tsv",
     run:
         df = pd.read_csv(input[0], "\t")
 
@@ -656,17 +694,12 @@ rule aggregate_diff_spl:
 rule dataset_results:
     input:
         "output/{dataset}/simulation_params.txt",
-        #"output/{dataset}/genes_with_overlapping_introns.txt",
-        "output/{dataset}/genes_with_overlapping_introns_shared_acceptor.txt",
-        expand("output/{{dataset}}/{{reference}}/differential_splicing/{{n_samples}}/{method}/genes.csv", method=methods)
+        expand("output/{{dataset}}/{{reference}}/differential_splicing/{{n_samples}}/{method}/genes.tsv", method=methods)
     output:
         "output/{dataset}/{reference}/results/{n_samples}/all.txt",
         "output/{dataset}/{reference}/results/{n_samples}/summary.txt",
     run:
         sim_params = pd.read_csv(input[0], "\t")
-        genes_to_keep = pd.read_csv(input[1], "\t", header=None).values.ravel()
-        print(sim_params.shape)
-        sim_params = sim_params[sim_params.gene_id.isin(genes_to_keep)]
         print(sim_params.shape)
         df = sim_params.groupby("gene_id").agg({"fold_change_a": "max", "fold_change_b": "max", "differential": "any"})
         print("df.differential.mean(): ", df.differential.mean())
@@ -679,7 +712,7 @@ rule dataset_results:
 
         summary = []
         for method in methods:
-            res = pd.read_csv(f"output/{wildcards['dataset']}/{wildcards['reference']}/differential_splicing/{wildcards['n_samples']}/{method}/genes.csv", "\t", index_col=0)
+            res = pd.read_csv(f"output/{wildcards['dataset']}/{wildcards['reference']}/differential_splicing/{wildcards['n_samples']}/{method}/genes.tsv", "\t", index_col=0)
             df[method] = res.reindex(df.index.values).p_value_gene_adj
 
             # option 1: replace untested with 1.0
@@ -795,14 +828,14 @@ rule plot_overall_results:
 #
 #rule plot_null_dist:
 #    input:
-#        expand("output/{{dataset}}/{{reference}}/differential_splicing/null/{method}/genes.csv", method=methods)
+#        expand("output/{{dataset}}/{{reference}}/differential_splicing/null/{method}/genes.tsv", method=methods)
 #    output:
 #        "output/{dataset}/{reference}/results/null/p_value_dist.pdf"
 #    run:
 #        plt.plot([0, 1], [0, 1], color="gray", linestyle="--")
 #        ax = plt.gca()
 #        for method in methods:
-#            path = f"output/{wildcards['dataset']}/{wildcards['reference']}/differential_splicing/null/{method}/genes.csv"
+#            path = f"output/{wildcards['dataset']}/{wildcards['reference']}/differential_splicing/null/{method}/genes.tsv"
 #            df = pd.read_csv(path, "\t")
 #            sns.ecdfplot(df.p_value_gene, ax=ax, label=method)
 #        plt.xlabel("p-value")
