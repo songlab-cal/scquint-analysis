@@ -65,10 +65,10 @@ methods = [
 ]
 
 fold_changes = [1.5]
-coverages = [0.33]
-#coverages = [0.16, 0.33, 1.0]
-size_fractions = [0.11]
-#size_fractions = [0.05, 0.11, 0.33]
+#coverages = [0.33]
+coverages = [0.16, 0.33, 1.0]
+#size_fractions = [0.11]
+size_fractions = [0.05, 0.11, 0.33]
 #seeds = [100, 101, 102]
 seeds = [100]
 
@@ -83,7 +83,8 @@ def flip_coin():
 
 rule all:
     input:
-        "output/results/all.pdf",
+        "output/1.5_1.0_0.33_100/unannotated_0/quantification/BRIE2/brie_count.h5ad",
+        #"output/results/all.pdf",
         #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/clusters.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
         #expand("output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
         #expand("output/{dataset}/{reference}/bam_paths.txt", dataset=datasets, reference=references),
@@ -476,6 +477,24 @@ rule get_gene_strand:
 ##        adata.write(output[0], compression="gzip")
 #
 #
+
+rule BRIE2_quantification:
+    input:
+        "output/{dataset}/{reference}/reference.gtf",
+        "output/{dataset}/{reference}/bam_paths.txt",
+    output:
+        "output/{dataset}/{reference}/quantification/BRIE2/brie_count.h5ad",
+    threads: workflow.cores
+    shell:
+        """
+        awk '{{print $2 "\t" $1}}' {input[1]} > {input[1]}.swap.txt &&
+        mkdir -p output/{wildcards.dataset}/{wildcards.reference}/quantification/BRIE2 &&
+        cd output/{wildcards.dataset}/{wildcards.reference}/quantification/BRIE2 &&
+        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/briekit-event -a ../../reference.gtf -o AS_events &&
+        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/briekit-event-filter -a AS_events/SE.gff3.gz --anno_ref=../../reference.gtf -r {genome_fasta_path} &&
+        brie-count -a AS_events/SE.filtered.gff3.gz -S ../../bam_paths.txt.swap.txt -o . -p {threads}
+        """
+#
 #rule brie_quantification_part1:
 #    input:
 #        "output/{dataset}/{reference}/quantification/{mode}/reference.gtf",
@@ -770,19 +789,19 @@ rule plot_overall_results:
     run:
         df = pd.read_csv(input[0], "\t")
         df = df.replace("unannotated_0", "Annotated")
-        df = df.replace("unannotated_de", "Unannotated")
-        df = df.replace("original_brie", "BRIE")
-        df = df.replace("original_kallisto_permutation-Euclidean", "kallisto")
-        df = df.replace("original_bins-nmf_permutation-Euclidean", "ODEGRfinder")
-        df = df.replace("assembly-unguided-merged_exons_permutation-Euclidean", "Ours (reassembled exons)")
-        df = df.replace("original_splicevi-gene_permutation-Euclidean", "Ours (introns gene)")
+        df = df.replace("unannotated_1", "Unannotated")
+        #df = df.replace("original_brie", "BRIE")
+        #df = df.replace("original_kallisto_permutation-Euclidean", "kallisto")
+        #df = df.replace("original_bins-nmf_permutation-Euclidean", "ODEGRfinder")
+        #df = df.replace("assembly-unguided-merged_exons_permutation-Euclidean", "Ours (reassembled exons)")
+        #df = df.replace("original_splicevi-gene_permutation-Euclidean", "Ours (introns gene)")
         #df = df.replace("original_splicevi-transitive_permutation-Euclidean", "Ours (introns local)")
         #df = df.replace("original_splicevi-nontransitive_permutation-Euclidean", "Alternative introns (ours)")
-        df = df.replace("original_introns-shared-acceptor_permutation-Euclidean", "Alt. introns shared 3' (ours)")
+        #df = df.replace("original_introns-shared-acceptor_permutation-Euclidean", "Alt. introns shared 3' (ours)")
 
         #df = df[df.Method.str.startswith("Ours")]
         #df = df[df.Method.isin(["BRIE", "kallisto", "ODEGRfinder", "Alternative introns (ours)"])]
-        df = df[df.Method.isin(["BRIE", "kallisto", "ODEGRfinder", "Alt. introns shared 3' (ours)"])]
+        #df = df[df.Method.isin(["BRIE", "kallisto", "ODEGRfinder", "Alt. introns shared 3' (ours)"])]
         df = df.rename(columns={"Reference": "DE transcript"})
         #df = df[df.Method.isin(["BRIE", "kallisto", "ODEGRfinder", "Ours (reassembled exons)"])]
 
