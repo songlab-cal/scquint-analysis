@@ -46,6 +46,7 @@ subset_genes_seed = 42
 groupings = ["introns-shared-acceptor"]
 methods = [
     "scQuint",
+    "BRIE2",
     #"original_kallisto_permutation-Euclidean",
     #"assembly-unguided-merged_exons_permutation-Euclidean",
     #"original_bins-nmf_permutation-Euclidean",
@@ -65,10 +66,10 @@ methods = [
 ]
 
 fold_changes = [1.5]
-#coverages = [0.33]
-coverages = [0.16, 0.33, 1.0]
-#size_fractions = [0.11]
-size_fractions = [0.05, 0.11, 0.33]
+#coverages = [0.16, 0.33, 1.0]
+coverages = [0.33, 1.0]
+#size_fractions = [0.05, 0.11, 0.33]
+size_fractions = [0.11, 0.33]
 #seeds = [100, 101, 102]
 seeds = [100]
 
@@ -83,8 +84,9 @@ def flip_coin():
 
 rule all:
     input:
-        "output/1.5_1.0_0.33_100/unannotated_0/quantification/BRIE2/brie_count.h5ad",
-        #"output/results/all.pdf",
+        #"output/1.5_1.0_0.33_100/unannotated_0/quantification/BRIE2/brie_count.h5ad",
+        #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/200/BRIE2/clusters.tsv",
+        "output/results/all.pdf",
         #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/clusters.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
         #expand("output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
         #expand("output/{dataset}/{reference}/bam_paths.txt", dataset=datasets, reference=references),
@@ -484,7 +486,8 @@ rule BRIE2_quantification:
         "output/{dataset}/{reference}/bam_paths.txt",
     output:
         "output/{dataset}/{reference}/quantification/BRIE2/brie_count.h5ad",
-    threads: workflow.cores
+    #threads: workflow.cores
+    threads: 4
     shell:
         """
         awk '{{print $2 "\t" $1}}' {input[1]} > {input[1]}.swap.txt &&
@@ -494,6 +497,37 @@ rule BRIE2_quantification:
         /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/briekit-event-filter -a AS_events/SE.gff3.gz --anno_ref=../../reference.gtf -r {genome_fasta_path} &&
         brie-count -a AS_events/SE.filtered.gff3.gz -S ../../bam_paths.txt.swap.txt -o . -p {threads}
         """
+
+
+rule BRIE2_diff_spl_unannotated_0:
+    input:
+        "output/{dataset}/unannotated_0/quantification/BRIE2/brie_count.h5ad",
+    output:
+        "output/{dataset}/unannotated_0/differential_splicing/{n_samples}/BRIE2/cell_anno.tsv",
+        "output/{dataset}/unannotated_0/differential_splicing/{n_samples}/BRIE2/brie_quant.h5ad",
+        "output/{dataset}/unannotated_0/differential_splicing/{n_samples}/BRIE2/clusters.tsv",
+    run:
+        cell_idx_a = np.arange(int(wildcards["n_samples"]))
+        cell_idx_b = np.arange(int(wildcards["n_samples"])) + n_total_samples_per_group
+        cell_idx = np.concatenate([cell_idx_a, cell_idx_b])
+        samID = sample_ids[cell_idx]
+        condition = np.ones_like(samID)
+        condition[:len(cell_idx_a)] = 0
+        pd.DataFrame(dict(samID=samID, condition=condition)).to_csv(output[0], "\t", index=False)
+        shell(f"brie-quant -i {input[0]} -c {output[0]} -o {output[1]} --interceptMode None --LRTindex 0")
+        df = pd.read_csv(output[1].replace(".h5ad", ".brie_ident.tsv"), "\t")
+        df["gene_id"] = df.GeneID
+        df["p_value"] = df.condition_pval
+        df.sort_values("p_value").to_csv(output[2], "\t", index=False)
+
+
+rule BRIE2_diff_spl_unannotated_1:
+    output:
+        "output/{dataset}/unannotated_1/differential_splicing/{n_samples}/BRIE2/clusters.tsv",
+    run:
+        pd.DataFrame(columns=["gene_id", "p_value"]).to_csv(output[0], "\t")
+
+# this file has the results brie_quant.brie_ident.tsv
 #
 #rule brie_quantification_part1:
 #    input:
@@ -695,18 +729,21 @@ rule aggregate_diff_spl:
     run:
         df = pd.read_csv(input[0], "\t")
 
-        def multiple_testing_correction(p_values):
-            reject, pvals_corrected, _, _ = multipletests(
-                p_values.values, 0.05, "fdr_bh"
-            )
-            res = np.min(pvals_corrected)
-            return res
+        if len(df) > 0:
+            def multiple_testing_correction(p_values):
+                reject, pvals_corrected, _, _ = multipletests(
+                    p_values.values, 0.05, "fdr_bh"
+                )
+                res = np.min(pvals_corrected)
+                return res
 
-        res = df.groupby("gene_id").p_value.agg(multiple_testing_correction).to_frame().reset_index().rename(columns={"p_value": "p_value_gene"})
-        reject, pvals_corrected, _, _ = multipletests(
-            res.p_value_gene.values, 0.05, "fdr_bh"
-        )
-        res["p_value_gene_adj"] = pvals_corrected
+            res = df.groupby("gene_id").p_value.agg(multiple_testing_correction).to_frame().reset_index().rename(columns={"p_value": "p_value_gene"})
+            reject, pvals_corrected, _, _ = multipletests(
+                res.p_value_gene.values, 0.05, "fdr_bh"
+               )
+            res["p_value_gene_adj"] = pvals_corrected
+        else:
+            res = pd.DataFrame(columns=["gene_id", "p_value_gene_adj"])
         res.to_csv(output[0], "\t", index=False)
 
 
@@ -737,10 +774,14 @@ rule dataset_results:
             # option 1: replace untested with 1.0
             #df[method] = df[method].fillna(1.0)
 
-            # option 2: fill untested at random as sifnificant/non-significant
+            # option 2: fill untested at random as significant/non-significant
             np.random.seed(seed)
-            min_value = df[method].dropna().min() - 1.0
-            max_value = df[method].dropna().max() + 1.0
+            if len(res) > 0:
+                min_value = df[method].dropna().min() - 1.0
+                max_value = df[method].dropna().max() + 1.0
+            else:
+                min_value = -1
+                max_value = 1
             def fill_at_random(x):
                 if pd.isnull(x):
                     if flip_coin():
@@ -832,7 +873,8 @@ rule plot_overall_results:
             hue="Method",
             style="DE transcript",
             col="var_coeff",
-            col_order=[21, 10, 4],
+            #col_order=[21, 10, 4],
+            col_order=[10, 4],
             row="Coverage",
             facet_kws=dict(margin_titles=True),
             kind="line",
