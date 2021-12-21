@@ -86,6 +86,8 @@ rule all:
     input:
         #"output/1.5_1.0_0.33_100/unannotated_0/quantification/BRIE2/brie_count.h5ad",
         #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/200/BRIE2/clusters.tsv",
+        #"output/1.5_1.0_0.33_100/unannotated_0/results/300/summary.txt",
+        #"output/1.5_1.0_0.33_100/unannotated_1/results/300/summary.txt",
         "output/results/all.pdf",
         #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/clusters.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
         #expand("output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
@@ -514,7 +516,7 @@ rule BRIE2_diff_spl_unannotated_0:
         condition = np.ones_like(samID)
         condition[:len(cell_idx_a)] = 0
         pd.DataFrame(dict(samID=samID, condition=condition)).to_csv(output[0], "\t", index=False)
-        shell(f"brie-quant -i {input[0]} -c {output[0]} -o {output[1]} --interceptMode None --LRTindex 0")
+        shell(f"brie-quant -i {input[0]} -c {output[0]} -o {output[1]} --interceptMode gene --LRTindex 0 --minCount 20 --minCell 20")
         df = pd.read_csv(output[1].replace(".h5ad", ".brie_ident.tsv"), "\t")
         df["gene_id"] = df.GeneID
         df["p_value"] = df.condition_pval
@@ -760,8 +762,8 @@ rule dataset_results:
         df = sim_params.groupby("gene_id").agg({"fold_change_a": "max", "fold_change_b": "max", "differential": "any"})
         print("df.differential.mean(): ", df.differential.mean())
         #raise Exception("debug")
-        _, _, _, seed = wildcards["dataset"].split("_")
-        seed = int(seed)
+        #_, _, _, seed = wildcards["dataset"].split("_")
+        #seed = int(seed)
 
         #baseline_method = None
         #baseline_method = "original_splicevi-transitive_permutation-Euclidean"
@@ -770,33 +772,38 @@ rule dataset_results:
         for method in methods:
             res = pd.read_csv(f"output/{wildcards['dataset']}/{wildcards['reference']}/differential_splicing/{wildcards['n_samples']}/{method}/genes.tsv", "\t", index_col=0)
             df[method] = res.reindex(df.index.values).p_value_gene_adj
+            print(method, wildcards["reference"])
+            print(df[method])
 
             # option 1: replace untested with 1.0
             #df[method] = df[method].fillna(1.0)
 
             # option 2: fill untested at random as significant/non-significant
-            np.random.seed(seed)
-            if len(res) > 0:
-                min_value = df[method].dropna().min() - 1.0
-                max_value = df[method].dropna().max() + 1.0
-            else:
-                min_value = -1
-                max_value = 1
-            def fill_at_random(x):
-                if pd.isnull(x):
-                    if flip_coin():
-                        return min_value
-                    else:
-                        return max_value
-                else:
-                    return x
-            df[method] = df[method].apply(fill_at_random)
+            #np.random.seed(seed)
+            #df[method] = df[method].apply(fill_at_random)
+            #print(df[method])
 
-        #df = df.dropna()
+
+        min_value = 0.0 - 1.0
+        max_value = 1.0 + 1.0
+        print(min_value, max_value)
+
+        def fill_at_random(x):
+            if pd.isnull(x):
+                if flip_coin():
+                    return min_value
+                else:
+                    return max_value
+            else:
+                return x
+
         for method in methods:
-            auc = roc_auc_score(~df.differential.astype(int), df[method])
+            np.random.seed(42)
+            print(df[method].apply(fill_at_random))
+            auc = np.mean([roc_auc_score(~df.differential.astype(int), df[method].apply(fill_at_random)) for _ in range(100)])
             summary.append([method, auc])
         summary = pd.DataFrame(summary, columns=["Method", "AUC"])
+        print(summary)
         df.to_csv(output[0], "\t")
         summary.to_csv(output[1], "\t", index=False)
 
