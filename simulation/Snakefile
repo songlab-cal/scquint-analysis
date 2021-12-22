@@ -84,11 +84,12 @@ def flip_coin():
 
 rule all:
     input:
+        "output/1.5_1.0_0.33_100/unannotated_0/quantification/DTUrtle",
         #"output/1.5_1.0_0.33_100/unannotated_0/quantification/BRIE2/brie_count.h5ad",
         #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/200/BRIE2/clusters.tsv",
         #"output/1.5_1.0_0.33_100/unannotated_0/results/300/summary.txt",
         #"output/1.5_1.0_0.33_100/unannotated_1/results/300/summary.txt",
-        "output/results/all.pdf",
+        #"output/results/all.pdf",
         #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/clusters.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
         #expand("output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
         #expand("output/{dataset}/{reference}/bam_paths.txt", dataset=datasets, reference=references),
@@ -200,10 +201,10 @@ rule filter_gtf:
 
 rule make_transcript_fasta:
     input:
-        "references/unannotated_0.gtf",
+        "{anything}.gtf",
         genome_fasta_path,
     output:
-        "references/unannotated_0.fa",
+        "{anything}.fa",
     shell:
         "gffread -w {output} -g {input[1]} {input[0]}"
 
@@ -529,71 +530,29 @@ rule BRIE2_diff_spl_unannotated_1:
     run:
         pd.DataFrame(columns=["gene_id", "p_value"]).to_csv(output[0], "\t")
 
-# this file has the results brie_quant.brie_ident.tsv
-#
-#rule brie_quantification_part1:
-#    input:
-#        "output/{dataset}/{reference}/quantification/{mode}/reference.gtf",
-#    output:
-#        "output/{dataset}/{reference}/quantification/{mode}/brie/AS_events/SE.filtered.gff3.gz",
-#        "output/{dataset}/{reference}/quantification/{mode}/brie/AS_events/features.csv.gz",
-#    shell:
-#        """
-#        mkdir -p output/{wildcards.dataset}/{wildcards.reference}/quantification/{wildcards.mode}/brie &&
-#        cd output/{wildcards.dataset}/{wildcards.reference}/quantification/{wildcards.mode}/brie &&
-#        ~/miniconda2/bin/briekit-event -a ../reference.gtf -o AS_events &&
-#        ~/miniconda2/bin/briekit-event-filter -a AS_events/SE.gff3.gz --anno_ref=../reference.gtf -r {genome_fasta_path} &&
-#        ~/miniconda2/bin/briekit-factor -a AS_events/SE.filtered.gff3.gz -r {genome_fasta_path} -c {phastcons_path} -o AS_events/features.csv -p 1
-#        """
-#
-#
-#rule brie_quantification_part2:
-#    input:
-#        "output/{dataset}/{reference}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam"
-#    output:
-#        "output/{dataset}/{reference}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam.bai"
-#    shell:
-#        "samtools index {input}"
-#
-#
-#rule run_diff_spl_brie:
-#    input:
-#        indices=expand("output/{{dataset}}/{{reference}}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam.bai", sample_id=sample_ids),
-#        group_a=lambda wildcards: expand("output/{{dataset}}/{{reference}}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam", sample_id=sample_ids[np.arange(int(wildcards["n_samples"]))]),
-#        group_b=lambda wildcards: expand("output/{{dataset}}/{{reference}}/mapping/mapping_second_pass/{sample_id}/Aligned.rmdup.out.bam", sample_id=sample_ids[np.arange(int(wildcards["n_samples"])) + n_total_samples_per_group]),
-#        event_info="output/{dataset}/{reference}/quantification/{mode}/brie/AS_events/SE.filtered.gff3.gz",
-#        sequence_features="output/{dataset}/{reference}/quantification/{mode}/brie/AS_events/features.csv.gz",
-#    params:
-#        group_a=lambda wildcards, input: ",".join(input.group_a),
-#        group_b=lambda wildcards, input: ",".join(input.group_b),
-#    threads: workflow.cores
-#    output:
-#        directory("output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/group_a/"),
-#        directory("output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/group_b/"),
-#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/events.diff.tsv",
-#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/events.diff.rank.tsv",
-#    shell:
-#        """
-#        brie1 -a {input.event_info} -s {params.group_a} -f {input.sequence_features} -o {output[0]} -p {threads} &&
-#        brie1 -a {input.event_info} -s {params.group_b} -f {input.sequence_features} -o {output[1]} -p {threads} &&
-#        brie1-diff -i {output[0]}/samples.csv.gz,{output[1]}/samples.csv.gz -o {output[2]} -p {threads} --minBF 0
-#        """
-#
-#rule aggregate_diff_spl_brie:
-#    input:
-#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/events.diff.rank.tsv",
-#    output:
-#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_brie/genes.tsv",
-#    run:
-#        print("starting aggregation")
-#        df = pd.read_csv(input[0], "\t")
-#        df.gene_id = df.gene_id.str.split(".").str[0]
-#        res = df.groupby("gene_id").mean_BF.sum()
-#        res = res.reset_index()
-#        res["p_value_gene"] = -res.mean_BF  # check if this works
-#        res["p_value_gene_adj"] = res.p_value_gene
-#        res = res.drop(columns=["mean_BF"])
-#        res.to_csv(output[0], "\t", index=False)
+
+rule DTUrtle_quantification:
+    input:
+        "output/{dataset}/{reference}/reference.fa",
+        "output/{dataset}/fastq_paths.txt",
+    output:
+        directory("output/{dataset}/{reference}/quantification/DTUrtle"),
+    threads: 1
+    run:
+        shell(f"mkdir -p {output[0]}")
+        shell(f"salmon index -t {input[0]} -p {threads} -i {output[0]}/index")
+        fastq_paths = pd.read_csv(input[1], "\t", header=None).values
+        print(fastq_paths)
+        for sample_id, path1, path2 in fastq_paths:
+            print(sample_id)
+            shell(f"salmon quant -l A -i {output[0]}/index -1 {path1} -2 {path2} --seqBias --gcBias --validateMappings --rangeFactorizationBins 4 --threads 1 -o {output[0]}/{sample_id}")
+
+
+rule DTUrtle_diff_spl_unannotated_1:
+    output:
+        "output/{dataset}/unannotated_1/differential_splicing/{n_samples}/DTUrtle/clusters.tsv",
+    run:
+        pd.DataFrame(columns=["gene_id", "p_value"]).to_csv(output[0], "\t")
 #
 #
 ##rule scats_make_metafile:
