@@ -47,6 +47,7 @@ groupings = ["introns-shared-acceptor"]
 methods = [
     "scQuint",
     "BRIE2",
+    "DTUrtle",
     #"original_kallisto_permutation-Euclidean",
     #"assembly-unguided-merged_exons_permutation-Euclidean",
     #"original_bins-nmf_permutation-Euclidean",
@@ -84,12 +85,13 @@ def flip_coin():
 
 rule all:
     input:
-        "output/1.5_1.0_0.33_100/unannotated_0/quantification/DTUrtle",
+        #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/100/DTUrtle/genes.tsv",
+        #"output/1.5_1.0_0.33_100/unannotated_0/quantification/DTUrtle",
         #"output/1.5_1.0_0.33_100/unannotated_0/quantification/BRIE2/brie_count.h5ad",
         #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/200/BRIE2/clusters.tsv",
         #"output/1.5_1.0_0.33_100/unannotated_0/results/300/summary.txt",
         #"output/1.5_1.0_0.33_100/unannotated_1/results/300/summary.txt",
-        #"output/results/all.pdf",
+        "output/results/all.pdf",
         #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/clusters.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
         #expand("output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
         #expand("output/{dataset}/{reference}/bam_paths.txt", dataset=datasets, reference=references),
@@ -546,6 +548,31 @@ rule DTUrtle_quantification:
         for sample_id, path1, path2 in fastq_paths:
             print(sample_id)
             shell(f"salmon quant -l A -i {output[0]}/index -1 {path1} -2 {path2} --seqBias --gcBias --validateMappings --rangeFactorizationBins 4 --threads 1 -o {output[0]}/{sample_id}")
+
+
+rule DTUrtle_diff_spl_unannotated_0:
+    input:
+        "output/{dataset}/unannotated_0/reference.gtf",
+        "output/{dataset}/unannotated_0/quantification/DTUrtle/",
+    output:
+        "output/{dataset}/unannotated_0/differential_splicing/{n_samples}/DTUrtle/sample_metadata.tsv",
+        "output/{dataset}/unannotated_0/differential_splicing/{n_samples}/DTUrtle/genes.tsv",
+    run:
+        cell_idx_a = np.arange(int(wildcards["n_samples"]))
+        cell_idx_b = np.arange(int(wildcards["n_samples"])) + n_total_samples_per_group
+        cell_idx = np.concatenate([cell_idx_a, cell_idx_b])
+
+        sids = sample_ids[cell_idx]
+        condition = ["a"] * len(cell_idx_a) + ["b"] * len(cell_idx_b)
+
+        metadata = pd.DataFrame(dict(
+            sample_id=sids,
+            condition=condition,
+            quant_path = [f"{input[1]}/{sample_id}/quant.sf" for sample_id in sids],
+        ))
+        metadata.to_csv(output[0], "\t", index=False)
+
+        shell(f"Rscript run_DTUrtle.R {input[0]} {output[0]} {output[1]}")
 
 
 rule DTUrtle_diff_spl_unannotated_1:
