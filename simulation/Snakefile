@@ -756,7 +756,7 @@ rule dataset_results:
 
         summary = []
         for method in methods:
-            res = pd.read_csv(f"output/{wildcards['dataset']}/{wildcards['reference']}/differential_splicing/{wildcards['n_samples']}/{method}/genes.tsv", "\t", index_col=0)
+            res = pd.read_csv(f"output/{wildcards['dataset']}/{wildcards['reference']}/differential_splicing/{wildcards['n_samples']}/{method}/genes.tsv", "\t").set_index("gene_id")
             df[method] = res.reindex(df.index.values).p_value_gene_adj
             print(method, wildcards["reference"])
             print(df[method])

@@ -41,4 +41,4 @@ print(res)
 res <- res[!duplicated(res$gene_id),]
 print(res)
 
-write.table(res, file = output_path, quote = FALSE)
+write.table(res, file = output_path, sep = "\t", quote = FALSE, row.names = FALSE)
