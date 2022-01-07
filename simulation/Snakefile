@@ -88,10 +88,11 @@ rule all:
         #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/100/DTUrtle/genes.tsv",
         #"output/1.5_1.0_0.33_100/unannotated_0/quantification/DTUrtle",
         #"output/1.5_1.0_0.33_100/unannotated_0/quantification/BRIE2/brie_count.h5ad",
+        "output/1.5_1.0_0.33_100/unannotated_0/quantification/SCATS_300/tmp/das_script",
         #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/200/BRIE2/clusters.tsv",
         #"output/1.5_1.0_0.33_100/unannotated_0/results/300/summary.txt",
         #"output/1.5_1.0_0.33_100/unannotated_1/results/300/summary.txt",
-        "output/results/all.pdf",
+        #"output/results/all.pdf",
         #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/clusters.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
         #expand("output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
         #expand("output/{dataset}/{reference}/bam_paths.txt", dataset=datasets, reference=references),
@@ -580,60 +581,78 @@ rule DTUrtle_diff_spl_unannotated_1:
         "output/{dataset}/unannotated_1/differential_splicing/{n_samples}/DTUrtle/clusters.tsv",
     run:
         pd.DataFrame(columns=["gene_id", "p_value"]).to_csv(output[0], "\t")
+
+
+rule SCATS_make_metafile:
+    input:
+        "output/{dataset}/{reference}/bam_paths.txt",
+    output:
+        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/metafile",
+    run:
+        df = pd.read_csv(input[0], "\t", header=None, names=["sample_id", "bam_path"])
+        if wildcards["n_samples"] == "all":
+            n_samples = n_total_samples_per_group
+        else:
+            n_samples = int(wildcards["n_samples"])
+        cell_idx_a = np.arange(n_samples)
+        cell_idx_b = np.arange(n_samples) + n_total_samples_per_group
+        df.loc[cell_idx_a, "condition"] = "A"
+        df.loc[cell_idx_b, "condition"] = "B"
+        df["UB"] = "UB"
+        df["CB"] = "CB"
+        print(df)
+        df.to_csv(output[0], "\t", header=False, index=False, columns=["sample_id", "condition", "bam_path", "UB", "CB"])
+
+
+rule SCATS_process_gtf:
+    input:
+        "output/{dataset}/{reference}/reference.gtf",
+        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/metafile",
+    output:
+        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.genePred",
+        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.refFile",
+        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.refgene",
+        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.gpinfo",
+        expand("output/{{dataset}}/{{reference}}/quantification/SCATS_{{n_samples}}/tmp/count_script/count_{sample_id}.sh", sample_id=sample_ids),
+    shell:
+        """
+        cd output/{wildcards.dataset}/{wildcards.reference}/quantification/SCATS_{wildcards.n_samples}/ &&
+        gtfToGenePred -genePredExt ../../reference.gtf reference.genePred &&
+        awk '{{print "1 \t" $0}}' reference.genePred > reference.refFile &&
+        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/python ../../../../../SCATS/SCATS.py -task refgene -ref reference.refFile -out reference.refgene &&
+        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/python ../../../../../SCATS/SCATS.py -task group -refgene reference.refgene -out reference.gpinfo &&
+        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/python ../../../../../SCATS/SCATS.py -task count -meta metafile -refgene reference.refgene -gpinfo reference.gpinfo -umi no -onebam no
+        """
+
+
+rule SCATS_quantify:
+    input:
+        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/tmp/count_script/count_{sample_id}.sh",
+    output:
+        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/tmp/count_script/count_{sample_id}.out",
+    shell:
+        "bash {input}"
+
+
+rule SCATS_diff_spl_part_1:
+    input:
+        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/metafile",
+        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.gpinfo",
+        expand("output/{{dataset}}/{{reference}}/quantification/SCATS_{{n_samples}}/tmp/count_script/count_{sample_id}.out", sample_id=sample_ids),
+    output:
+        directory("output/{dataset}/{reference}/quantification/SCATS_{n_samples}/tmp/das_script"),
+    threads: workflow.cores
+    shell:
+        """
+        mkdir -p {output} &&
+        cd output/{wildcards.dataset}/{wildcards.reference}/quantification/SCATS_{wildcards.n_samples}/ &&
+        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/python ../../../../../SCATS/SCATS.py -task das -ncore 1 -meta metafile -gpinfo reference.gpinfo #&&
+        #PATH=/global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin:$PATH bash tmp/das_script/das_A_B.sh
+        """
+
 #
-#
-##rule scats_make_metafile:
-##    input:
-##        "output/{dataset}/{reference}/bam_paths.txt",
-##    output:
-##        "output/{dataset}/{reference}/quantification/{mode}/scats/metafile_{n_samples}",
-##    run:
-##        df = pd.read_csv(input[0], "\t", header=None, names=["sample_id", "bam_path"])
-##        if wildcards["n_samples"] == "all":
-##            n_samples = n_total_samples_per_group
-##        else:
-##            n_samples = int(wildcards["n_samples"])
-##        cell_idx_a = np.arange(n_samples)
-##        cell_idx_b = np.arange(n_samples) + n_total_samples_per_group
-##        df.loc[cell_idx_a, "condition"] = "A"
-##        df.loc[cell_idx_b, "condition"] = "B"
-##        df["UB"] = "UB"
-##        df["CB"] = "CB"
-##        print(df)
-##        df.to_csv(output[0], "\t", header=False, index=False, columns=["sample_id", "condition", "bam_path", "UB", "CB"])
-##
-##
-##rule scats_process_gtf:
-##    input:
-##        "output/{dataset}/{reference}/quantification/{mode}/reference.gtf",
-##        "output/{dataset}/{reference}/quantification/{mode}/scats/metafile_all",
-##    output:
-##        "output/{dataset}/{reference}/quantification/{mode}/scats/reference.genePred",
-##        "output/{dataset}/{reference}/quantification/{mode}/scats/reference.refFile",
-##        "output/{dataset}/{reference}/quantification/{mode}/scats/reference.refgene",
-##        "output/{dataset}/{reference}/quantification/{mode}/scats/reference.gpinfo",
-##        expand("output/{{dataset}}/{{reference}}/quantification/{{mode}}/scats/tmp/count_script/count_{sample_id}.sh", sample_id=sample_ids),
-##    shell:
-##        """
-##        cd output/{wildcards.dataset}/{wildcards.reference}/quantification/{wildcards.mode}/scats/ &&
-##        gtfToGenePred -genePredExt ../reference.gtf reference.genePred &&
-##        awk '{{print "1 \t" $0}}' reference.genePred > reference.refFile &&
-##        python ../../../../../../SCATS/SCATS.py -task refgene -ref reference.refFile -out reference.refgene &&
-##        python ../../../../../../SCATS/SCATS.py -task group -refgene reference.refgene -out reference.gpinfo &&
-##        python ../../../../../../SCATS/SCATS.py -task count -meta metafile_all -refgene reference.refgene -gpinfo reference.gpinfo -umi no -onebam no
-##        """
-##
-##
-##rule scats_quantify:
-##    input:
-##        "output/{dataset}/{reference}/quantification/{mode}/scats/tmp/count_script/count_{sample_id}.sh",
-##    output:
-##        "output/{dataset}/{reference}/quantification/{mode}/scats/tmp/count_script/count_{sample_id}.out",
-##    shell:
-##        "bash {input}"
-#
-## python ../../../../../../SCATS/SCATS.py -task das -ncore 20 -meta metafile_all -gpinfo reference.gpinfo
-## /global/scratch/gbenegas/spliceVI-project/spliceVI-analysis/benchmark/simulation/output/1.5_0.33_0.11_100/unannotated_0/quantification/original/scats/tmp/das_script
+## 
+## /global/scratch/gbenegas/spliceVI-project/spliceVI-analysis/benchmark/simulation/output/1.5_0.33_0.11_100/unannotated_0/quantification/original/SCATS/tmp/das_script
 ##(base) [gbenegas@n0159 das_script]$ ls
 ##das_A_B.sh  data
 #
