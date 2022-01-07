@@ -583,80 +583,73 @@ rule DTUrtle_diff_spl_unannotated_1:
         pd.DataFrame(columns=["gene_id", "p_value"]).to_csv(output[0], "\t")
 
 
-rule SCATS_make_metafile:
-    input:
-        "output/{dataset}/{reference}/bam_paths.txt",
-    output:
-        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/metafile",
-    run:
-        df = pd.read_csv(input[0], "\t", header=None, names=["sample_id", "bam_path"])
-        if wildcards["n_samples"] == "all":
-            n_samples = n_total_samples_per_group
-        else:
-            n_samples = int(wildcards["n_samples"])
-        cell_idx_a = np.arange(n_samples)
-        cell_idx_b = np.arange(n_samples) + n_total_samples_per_group
-        df.loc[cell_idx_a, "condition"] = "A"
-        df.loc[cell_idx_b, "condition"] = "B"
-        df["UB"] = "UB"
-        df["CB"] = "CB"
-        print(df)
-        df.to_csv(output[0], "\t", header=False, index=False, columns=["sample_id", "condition", "bam_path", "UB", "CB"])
-
-
-rule SCATS_process_gtf:
-    input:
-        "output/{dataset}/{reference}/reference.gtf",
-        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/metafile",
-    output:
-        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.genePred",
-        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.refFile",
-        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.refgene",
-        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.gpinfo",
-        expand("output/{{dataset}}/{{reference}}/quantification/SCATS_{{n_samples}}/tmp/count_script/count_{sample_id}.sh", sample_id=sample_ids),
-    shell:
-        """
-        cd output/{wildcards.dataset}/{wildcards.reference}/quantification/SCATS_{wildcards.n_samples}/ &&
-        gtfToGenePred -genePredExt ../../reference.gtf reference.genePred &&
-        awk '{{print "1 \t" $0}}' reference.genePred > reference.refFile &&
-        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/python ../../../../../SCATS/SCATS.py -task refgene -ref reference.refFile -out reference.refgene &&
-        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/python ../../../../../SCATS/SCATS.py -task group -refgene reference.refgene -out reference.gpinfo &&
-        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/python ../../../../../SCATS/SCATS.py -task count -meta metafile -refgene reference.refgene -gpinfo reference.gpinfo -umi no -onebam no
-        """
-
-
-rule SCATS_quantify:
-    input:
-        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/tmp/count_script/count_{sample_id}.sh",
-    output:
-        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/tmp/count_script/count_{sample_id}.out",
-    shell:
-        "bash {input}"
-
-
-rule SCATS_diff_spl_part_1:
-    input:
-        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/metafile",
-        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.gpinfo",
-        expand("output/{{dataset}}/{{reference}}/quantification/SCATS_{{n_samples}}/tmp/count_script/count_{sample_id}.out", sample_id=sample_ids),
-    output:
-        directory("output/{dataset}/{reference}/quantification/SCATS_{n_samples}/tmp/das_script"),
-    threads: workflow.cores
-    shell:
-        """
-        mkdir -p {output} &&
-        cd output/{wildcards.dataset}/{wildcards.reference}/quantification/SCATS_{wildcards.n_samples}/ &&
-        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/python ../../../../../SCATS/SCATS.py -task das -ncore 1 -meta metafile -gpinfo reference.gpinfo #&&
-        #PATH=/global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin:$PATH bash tmp/das_script/das_A_B.sh
-        """
-
-#
-## 
-## /global/scratch/gbenegas/spliceVI-project/spliceVI-analysis/benchmark/simulation/output/1.5_0.33_0.11_100/unannotated_0/quantification/original/SCATS/tmp/das_script
-##(base) [gbenegas@n0159 das_script]$ ls
-##das_A_B.sh  data
+#rule SCATS_make_metafile:
+#    input:
+#        "output/{dataset}/{reference}/bam_paths.txt",
+#    output:
+#        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/metafile",
+#    run:
+#        df = pd.read_csv(input[0], "\t", header=None, names=["sample_id", "bam_path"])
+#        if wildcards["n_samples"] == "all":
+#            n_samples = n_total_samples_per_group
+#        else:
+#            n_samples = int(wildcards["n_samples"])
+#        cell_idx_a = np.arange(n_samples)
+#        cell_idx_b = np.arange(n_samples) + n_total_samples_per_group
+#        df.loc[cell_idx_a, "condition"] = "A"
+#        df.loc[cell_idx_b, "condition"] = "B"
+#        df["UB"] = "UB"
+#        df["CB"] = "CB"
+#        print(df)
+#        df.to_csv(output[0], "\t", header=False, index=False, columns=["sample_id", "condition", "bam_path", "UB", "CB"])
 #
 #
+#rule SCATS_process_gtf:
+#    input:
+#        "output/{dataset}/{reference}/reference.gtf",
+#        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/metafile",
+#    output:
+#        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.genePred",
+#        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.refFile",
+#        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.refgene",
+#        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.gpinfo",
+#        expand("output/{{dataset}}/{{reference}}/quantification/SCATS_{{n_samples}}/tmp/count_script/count_{sample_id}.sh", sample_id=sample_ids),
+#    shell:
+#        """
+#        cd output/{wildcards.dataset}/{wildcards.reference}/quantification/SCATS_{wildcards.n_samples}/ &&
+#        gtfToGenePred -genePredExt ../../reference.gtf reference.genePred &&
+#        awk '{{print "1 \t" $0}}' reference.genePred > reference.refFile &&
+#        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/python ../../../../../SCATS/SCATS.py -task refgene -ref reference.refFile -out reference.refgene &&
+#        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/python ../../../../../SCATS/SCATS.py -task group -refgene reference.refgene -out reference.gpinfo &&
+#        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/python ../../../../../SCATS/SCATS.py -task count -meta metafile -refgene reference.refgene -gpinfo reference.gpinfo -umi no -onebam no
+#        """
+#
+#
+#rule SCATS_quantify:
+#    input:
+#        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/tmp/count_script/count_{sample_id}.sh",
+#    output:
+#        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/tmp/count_script/count_{sample_id}.out",
+#    shell:
+#        "bash {input}"
+#
+#
+#rule SCATS_diff_spl_part_1:
+#    input:
+#        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/metafile",
+#        "output/{dataset}/{reference}/quantification/SCATS_{n_samples}/reference.gpinfo",
+#        expand("output/{{dataset}}/{{reference}}/quantification/SCATS_{{n_samples}}/tmp/count_script/count_{sample_id}.out", sample_id=sample_ids),
+#    output:
+#        directory("output/{dataset}/{reference}/quantification/SCATS_{n_samples}/tmp/das_script"),
+#    threads: workflow.cores
+#    shell:
+#        """
+#        mkdir -p {output} &&
+#        cd output/{wildcards.dataset}/{wildcards.reference}/quantification/SCATS_{wildcards.n_samples}/ &&
+#        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/python ../../../../../SCATS/SCATS.py -task das -ncore 1 -meta metafile -gpinfo reference.gpinfo &&
+#        PATH=/global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin:$PATH bash tmp/das_script/das_A_B.sh
+#        """
+
 rule scQuint_diff_spl:
     input:
         "output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad",
@@ -682,51 +675,6 @@ rule scQuint_diff_spl:
         diff_spl_clusters.to_csv(output[0], '\t')
         diff_spl_introns.to_csv(output[1], '\t')
 
-
-#rule run_diff_spl:
-#    input:
-#        "output/{dataset}/{reference}/quantification/{mode}/{quantification}/adata.h5ad"
-#    output:
-#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_{quantification,kallisto|introns-shared-acceptor|splicevi-gene|splicevi-nontransitive|splicevi-transitive|bins|bins-nmf|exons|exons-and-introns|exons-and-introns-vae}_{variant}/clusters.csv",
-#        "output/{dataset}/{reference}/differential_splicing/{n_samples}/{mode}_{quantification}_{variant}/introns.csv",
-#    resources: gpu=1
-#    priority: 50
-#    run:
-#        adata = anndata.read_h5ad(input[0])
-#        adata.var["original_cluster"] = adata.var.cluster
-#        if wildcards["n_samples"] == "null":
-#            cell_idx_a = np.arange(n_total_samples_per_group//2)
-#            cell_idx_b = np.arange(n_total_samples_per_group//2, n_total_samples_per_group)
-#        else:
-#            cell_idx_a = np.arange(int(wildcards["n_samples"]))
-#            cell_idx_b = np.arange(int(wildcards["n_samples"])) + n_total_samples_per_group
-#
-#        #try:
-#        #    freer_gpu = GPUtil.getAvailable(order = 'memory', attempts=3)[0]
-#        #except:
-#        #    freer_gpu = np.random.randint(4)
-#        #device = f"cuda:{freer_gpu}"
-#        device = f"cuda:0"
-#        print(device)
-#        #df_cluster, df_intron = compute_splicing_p_value(
-#        #    adata,
-#        #    wildcards["variant"],
-#        #    cell_idx_a,
-#        #    cell_idx_b,
-#        #    device=device,
-#        #    n_permutations=10000,
-#        #)
-#        #cluster_gene_id_map = adata.var.groupby("cluster").gene_id.first()
-#        #df_cluster["gene_id"] = cluster_gene_id_map.loc[df_cluster.cluster].values
-#        #df_cluster.to_csv(output[0], '\t', index=False)
-#        #df_intron.to_csv(output[1], '\t', index=False)
-#
-#        diff_spl_clusters, diff_spl_introns = run_differential_splicing(
-#            adata, wildcards["variant"], cell_idx_a, cell_idx_b, device=device, n_permutations=10000,
-#        )
-#        diff_spl_clusters.to_csv(output[0], '\t')
-#        diff_spl_introns.to_csv(output[1], '\t')
-#
 
 rule aggregate_diff_spl:
     input:

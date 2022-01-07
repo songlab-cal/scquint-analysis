@@ -29,7 +29,7 @@ import umap.umap_ as umap
 UMAP = umap.UMAP
 
 from scquint.differential_splicing import run_differential_splicing
-from scquint.dimensionality_reduction import run_pca, run_vae
+#from scquint.dimensionality_reduction import run_pca, run_vae
 from scquint.utils import (filter_min_cells_per_cluster,
                            filter_min_cells_per_feature, filter_singletons,
                            group_normalize, relabel,
@@ -146,7 +146,7 @@ quantifications_gaba_subset = ["gene-expression", "kallisto", "bins", "exons", "
 
 rule all:
     input:
-        "output/comparison/ion_channels/cell_type.pdf",
+        "output/diff_spl/subclass_label/merged_significant_all_genes.svg",
         #expand("output/bam_regions/Mbnl2/{cell_type}/merged.bam", cell_type=genes_bam_merge["Mbnl2"]["cell_types"]),
         #expand("output/bam_regions/Khdrbs3/{cell_type}/merged.bam", cell_type=genes_bam_merge["Khdrbs3"]["cell_types"]),
         #'output/diff_spl/class_label/marker_introns.svg',
@@ -570,6 +570,7 @@ rule filter_diff_spl_significant:
         gene_name = pd.read_csv(input[4], "\t", index_col=0)
 
         assert(set(diff_spl_cluster.index.values) == set(diff_spl_intron.cluster.unique()))
+        cluster_original_cluster = diff_spl_intron[["cluster", "original_cluster"]].drop_duplicates()
 
         print(diff_spl_cluster.shape)
         diff_spl_cluster = diff_spl_cluster[
@@ -630,10 +631,12 @@ rule filter_diff_spl_significant:
         print(diff_spl_cluster.Region.value_counts())
         diff_spl_cluster.max_abs_delta_psi = diff_spl_cluster.max_abs_delta_psi.round(decimals=3)
 
+        diff_spl_cluster = diff_spl_cluster.merge(cluster_original_cluster, how="left", on="cluster")
+
         np.set_printoptions(linewidth=100000)
         diff_spl_cluster.to_csv(
             output[0], "\t",
-            columns=["gene_id", "gene_name", "p_value", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "coordinates"],
+            columns=["original_cluster", "gene_id", "gene_name", "p_value", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "coordinates"],
             #columns=["gene_id", "gene_name", "p_value_adj", "max_abs_delta_psi", "Annotated", "Region", "diff_exp_rank", "p_value", "chromosome", "start", "end"],
         )
 
@@ -659,9 +662,7 @@ rule plot_significant:
         "output/diff_spl/subclass_label/merged_significant.tsv",
     output:
         "output/diff_spl/subclass_label/merged_significant_all.svg",
-        "output/diff_spl/subclass_label/merged_significant_5p.svg",
-        "output/diff_spl/subclass_label/merged_significant_cds.svg",
-        "output/diff_spl/subclass_label/merged_significant_3p.svg",
+        "output/diff_spl/subclass_label/merged_significant_all_genes.svg",
         "output/diff_spl/subclass_label/merged_significant_aggregate.svg",
     run:
         df_all = pd.read_csv(input[0], "\t")
@@ -670,34 +671,35 @@ rule plot_significant:
         df_all.Type = df_all.Type.replace(True, "Annotated").replace(False, "Novel")
         df_all.Region = df_all.Region.replace("Non-coding", "Non-coding RNA")
 
-        def plot_counts(df, output_path):
+        def plot_counts(df, output_path, ylabel="Diff. spl. events"):
             df_plot = df.groupby(["Type", "Cell type"]).size().reset_index().pivot(columns='Type', index='Cell type', values=0)
             print(df_plot)
             df_plot = df_plot.loc[cell_type_order]
             print(df_plot)
-            g = df_plot.plot(kind='bar', stacked=True)
+            g = df_plot.plot(kind='bar', stacked=True, figsize=(4,3))
             g.set_xticklabels(g.get_xticklabels(), rotation=45, horizontalalignment='right')
             #g.set(xlabel='Cell type', ylabel='Diff. spl. events')
-            g.set(xlabel="", ylabel='Diff. spl. events')
+            g.set(xlabel="", ylabel=ylabel)
             sns.despine()
             #sns.despine(left=True)
             plt.legend(loc='upper right')
             plt.savefig(output_path, bbox_inches='tight')
             plt.close()
         plot_counts(df_all, output[0])
-        plot_counts(df_all[df_all.Region=="5' UTR"], output[1])
-        plot_counts(df_all[df_all.Region=="CDS"], output[2])
-        plot_counts(df_all[df_all.Region=="3' UTR"], output[3])
-        df = df_all
+        print(df_all.sort_values("Type", ascending=False).Type)
+        plot_counts(df_all.sort_values("Type", ascending=False).drop_duplicates(["Cell type", "gene_id"]), output[1], ylabel="Diff. spl. genes")
+
+        #df = df_all
+        df = df_all.drop_duplicates("original_cluster")
         df_plot = df.groupby(["Type", "Region"]).size().reset_index().pivot(columns='Type', index='Region', values=0).loc[["5' UTR", "CDS", "3' UTR", "Non-coding RNA"]]
-        g = df_plot.plot(kind='bar', stacked=True)
+        g = df_plot.plot(kind='bar', stacked=True, figsize=(3,3))
         g.set_xticklabels(g.get_xticklabels(), rotation=45, horizontalalignment='right')
         #g.set(xlabel='Region', ylabel='Diff. spl. events')
         g.set(xlabel="", ylabel='Diff. spl. events')
         #sns.despine(left=True)
         sns.despine()
         plt.legend(loc='upper right')
-        plt.savefig(output[4], bbox_inches='tight')
+        plt.savefig(output[2], bbox_inches='tight')
 
 
 rule dimensionality_reduction_expression:
