@@ -23,7 +23,7 @@ from scipy.stats import chi2_contingency, spearmanr
 from sklearn.decomposition import NMF, PCA
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, StratifiedGroupKFold
 from statsmodels.stats.multitest import multipletests
 import umap.umap_ as umap
 UMAP = umap.UMAP
@@ -146,7 +146,8 @@ quantifications_gaba_subset = ["gene-expression", "kallisto", "bins", "exons", "
 
 rule all:
     input:
-        "output/diff_spl/subclass_label/merged_significant_all_genes.svg",
+        "output/dimensionality_reduction/classification_score.svg",
+        #"output/diff_spl/subclass_label/merged_significant_all_genes.svg",
         #expand("output/bam_regions/Mbnl2/{cell_type}/merged.bam", cell_type=genes_bam_merge["Mbnl2"]["cell_types"]),
         #expand("output/bam_regions/Khdrbs3/{cell_type}/merged.bam", cell_type=genes_bam_merge["Khdrbs3"]["cell_types"]),
         #'output/diff_spl/class_label/marker_introns.svg',
@@ -1277,28 +1278,6 @@ rule plot_marker_introns_subclass:
         plt.close("all")
 
 
-def calculate_classification_metrics(latent, classes, idx, seed=None):
-    latent = latent[idx]
-    classes = classes[idx]
-    all_classes = np.unique(classes)
-
-    try:
-        X_train, X_test, y_train, y_test = train_test_split(
-            latent, classes, test_size=0.33, random_state=seed, stratify=classes
-        )
-    except:
-        X_train, X_test, y_train, y_test = train_test_split(
-            latent, classes, test_size=0.33, random_state=seed, stratify=None
-        )
-        print("not stratifying")
-
-    clf = LogisticRegression(random_state=seed, max_iter=10000)
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
-    y_proba = clf.predict_proba(X_test)
-    return accuracy_score(y_test, y_pred), f1_score(y_test, y_pred), roc_auc_score(y_test, y_proba[:, 1])
-
-
 rule get_classification_score:
     input:
         "output/dimensionality_reduction/all/gene-expression/pca_20/latent.txt",
@@ -1309,16 +1288,18 @@ rule get_classification_score:
     run:
         latent_exp = np.loadtxt(input[0])
         latent_spl = np.loadtxt(input[1])
+        groups = sample_info.external_donor_name.values
+        clf = LogisticRegression(random_state=42, max_iter=10000)
 
-        idx = slice(None)
         results = []
         for cell_type in cell_type_order:
             print(cell_type)
             labels = sample_info["Cell type"] == cell_type
-            for seed in range(30):
-                results.append((cell_type, "Expression", seed, *calculate_classification_metrics(latent_exp, labels, idx, seed)))
-                results.append((cell_type, "Splicing", seed, *calculate_classification_metrics(latent_spl, labels, idx, seed)))
-        results = pd.DataFrame(results, columns=['Cell type', 'Latent space', 'seed', 'accuracy', 'F1 score', "AUC"])
+            for latent, latent_name in zip([latent_exp, latent_spl], ["Expression", "Splicing"]):
+                scores = cross_val_score(clf, latent, labels, groups=groups, scoring="roc_auc", cv=StratifiedGroupKFold(n_splits=3, shuffle=True, random_state=42))
+                for split, score in enumerate(scores):
+                    results.append([cell_type, latent_name, split, score])
+        results = pd.DataFrame(results, columns=['Cell type', 'Latent space', 'split', "ROC_AUC"])
         results.to_csv(output[0], "\t", index=False)
 
 
@@ -1329,7 +1310,8 @@ rule plot_classification_score:
         "output/dimensionality_reduction/classification_score.svg",
     run:
         df = pd.read_csv(input[0], "\t")
-        g = sns.barplot(x="Cell type", y="AUC", hue="Latent space", order=cell_type_order, data=df, ci='sd', palette="Accent");
+        plt.figure(figsize=(4,3))
+        g = sns.barplot(x="Cell type", y="ROC_AUC", hue="Latent space", order=cell_type_order, data=df, ci='sd', palette="Accent");
         g.set_xticklabels(g.get_xticklabels(), rotation=45,  horizontalalignment='right')
         g.set(xlabel="")
         sns.despine()

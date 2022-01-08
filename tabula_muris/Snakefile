@@ -17,7 +17,7 @@ from sklearn.decomposition import PCA, NMF
 from sklearn.feature_selection import RFECV, SelectFromModel
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, StratifiedGroupKFold
 from statsmodels.stats.multitest import multipletests
 import umap.umap_ as umap
 UMAP = umap.UMAP
@@ -64,10 +64,8 @@ functional_class_info.functional_class.replace({
     "parenchymal;muscle cell": "other",
 }, inplace=True)
 sample_info = sample_info.merge(functional_class_info, how="left", left_on=["tissue", "cell_ontology_class"], right_index=True)
-print(sample_info.functional_class.value_counts())
 #sample_info.loc[sample_info.functional_class=="Other", "functional_class"] = sample_info.loc[sample_info.functional_class=="Other", "tissue"]
 sample_info.loc[(sample_info.functional_class=="other") & (sample_info.tissue.isin(["Brain_Non-Myeloid", "Pancreas"])), "functional_class"] = sample_info.loc[(sample_info.functional_class=="other") & (sample_info.tissue.isin(["Brain_Non-Myeloid", "Pancreas"])), "tissue"]
-print(sample_info.functional_class.value_counts())
 
 
 sample_info["tct"] = sample_info.tissue.astype(str) + "." + sample_info.cell_type.astype(str)
@@ -81,11 +79,11 @@ for tct in sample_info.tct.unique():
     for functional_class in functional_classes:
         if tct_counts.loc[tct] >= 100 and functional_class in tct_functional_class_map.loc[tct]:
             tcts_functional_class[functional_class].append(tct)
-print(tcts_functional_class)
+#print(tcts_functional_class)
 
 
 sample_ids_subset = sorted(sample_info[sample_info.tissue=="Mammary_Gland"].index.values)
-print("len(sample_ids_subset): ", len(sample_ids_subset))
+#print("len(sample_ids_subset): ", len(sample_ids_subset))
 
 sample_ids_leafcutter = sample_ids_subset
 
@@ -149,7 +147,7 @@ for tissue in tissues:
         continue
     tissue_cell_type_pairs += [[tissue, cell_type]
                                for cell_type in tissue_cell_types]
-print(len(tissue_cell_type_pairs), len(tissue_cell_type_pairs_including_singletons))
+#print(len(tissue_cell_type_pairs), len(tissue_cell_type_pairs_including_singletons))
 
 tissue_cell_type_pairs = sorted(tissue_cell_type_pairs)
 
@@ -175,6 +173,7 @@ cell_type_order = ["(1) pro-B", "(2) pre-B", "(3) immature B", "(4) naive B"]
 
 rule all:
     input:
+        "output/dimensionality_reduction/marrow/classification_score.svg",
         #expand('output/differential_splicing/functional_class/{functional_class}/plot_marker_intron_coordinates.tsv', functional_class=functional_classes),
         #expand('output/differential_splicing/functional_class/{functional_class}/marker_introns.svg', functional_class=functional_classes),
         #expand('output/differential_splicing/functional_class/endothelial/{tct}/splicing.clusters.tsv', tct=tcts_functional_class["endothelial"]),
@@ -1381,72 +1380,55 @@ rule plot_significant:
 #        res.to_csv(output[0], "\t", index=False)
 #
 #
-#def calculate_classification_metrics(latent, classes, idx, seed=None):
-#    latent = latent[idx]
-#    classes = classes[idx]
-#    all_classes = np.unique(classes)
-#
-#    try:
-#        X_train, X_test, y_train, y_test = train_test_split(
-#            latent, classes, test_size=0.33, random_state=seed, stratify=classes
-#        )
-#    except:
-#        X_train, X_test, y_train, y_test = train_test_split(
-#            latent, classes, test_size=0.33, random_state=seed, stratify=None
-#        )
-#        print("not stratifying")
-#
-#    clf = LogisticRegression(random_state=seed, max_iter=10000)
-#    clf.fit(X_train, y_train)
-#    y_pred = clf.predict(X_test)
-#    y_proba = clf.predict_proba(X_test)
-#    return accuracy_score(y_test, y_pred), f1_score(y_test, y_pred), roc_auc_score(y_test, y_proba[:, 1])
-#
-#
-#rule get_classification_score:
-#    input:
-#        #"output/dimensionality_reduction/marrow/gene-expression/pca_20/latent.txt",
-#        #"output/dimensionality_reduction/marrow/introns-transitive/pca_20/latent.txt",
-#        "output/dimensionality_reduction/all/gene-expression/pca_40/latent.txt",
-#        "output/dimensionality_reduction/all/introns-shared-acceptor/vae_hyperopt/latent.txt",
-#    output:
-#        "output/dimensionality_reduction/marrow/classification_score.tsv",
-#    run:
-#        cell_idx = np.where(sample_info.tissue=="Marrow")[0]
-#        latent_exp = np.loadtxt(input[0])[cell_idx]
-#        latent_spl = np.loadtxt(input[1])[cell_idx]
-#        obs = sample_info.iloc[cell_idx]
-#
-#        results = []
-#        for tissue, cell_type in tissue_cell_type_pairs:
-#            if tissue != "Marrow": continue
-#            print(cell_type)
-#            idx = np.where(np.isin(obs.cell_type, [ct for t, ct in tissue_cell_type_pairs if t==tissue]))[0]
-#            print(idx)
-#            labels = (obs.cell_type==cell_type)
-#            print(labels.sum(), len(labels), len(latent_exp), len(latent_spl))
-#
-#            for seed in range(30):
-#                results.append((cell_type.replace("_", " "), "Expression", seed, *calculate_classification_metrics(latent_exp, labels, idx, seed)))
-#                results.append((cell_type.replace("_", " "), "Splicing", seed, *calculate_classification_metrics(latent_spl, labels, idx, seed)))
-#        results = pd.DataFrame(results, columns=['Cell type', 'Latent space', 'seed', 'accuracy', 'F1 score', "AUC"])
-#        results.to_csv(output[0], "\t", index=False)
-#
-#
-#rule plot_classification_score:
-#    input:
-#        "output/dimensionality_reduction/marrow/classification_score.tsv",
-#    output:
-#        "output/dimensionality_reduction/marrow/classification_score.svg",
-#    run:
-#        df = pd.read_csv(input[0], "\t")
-#        g = sns.barplot(x="Cell type", y="AUC", hue="Latent space", data=df, ci='sd', palette="Accent");
-#        g.set_xticklabels(g.get_xticklabels(), rotation=45,  horizontalalignment='right')
-#        g.set(xlabel="")
-#        sns.despine()
-#        #plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0., title="latent space");
-#        plt.tight_layout()
-#        plt.savefig(output[0], bbox_inches="tight")
+rule get_classification_score:
+    input:
+        #"output/dimensionality_reduction/marrow/gene-expression/pca_20/latent.txt",
+        #"output/dimensionality_reduction/marrow/introns-transitive/pca_20/latent.txt",
+        "output/dimensionality_reduction/all/gene-expression/pca_40/latent.txt",
+        "output/dimensionality_reduction/all/introns-shared-acceptor/vae_hyperopt/latent.txt",
+    output:
+        "output/dimensionality_reduction/marrow/classification_score.tsv",
+    run:
+        tissue = "Marrow"
+        cts = [ct for t, ct in tissue_cell_type_pairs if t==tissue]
+        cell_idx = np.where((sample_info.tissue=="Marrow") & np.isin(sample_info.cell_type, cts))[0]
+        latent_exp = np.loadtxt(input[0])[cell_idx]
+        latent_spl = np.loadtxt(input[1])[cell_idx]
+        obs = sample_info.iloc[cell_idx]
+        groups = obs["mouse.id"].values
+
+        clf = LogisticRegression(random_state=42, max_iter=10000)
+
+        results = []
+        for cell_type in cts:
+            print(cell_type)
+            labels = (obs.cell_type==cell_type)
+            for latent, latent_name in zip([latent_exp, latent_spl], ["Expresion", "Splicing"]):
+                scores = cross_val_score(clf, latent, labels, groups=groups, scoring="roc_auc", cv=StratifiedGroupKFold(n_splits=3, shuffle=True, random_state=42))
+                for split, score in enumerate(scores):
+                    results.append([cell_type, latent_name, split, score])
+        results = pd.DataFrame(results, columns=['Cell type', 'Latent space', 'split', "ROC_AUC"])
+        results.to_csv(output[0], "\t", index=False)
+
+
+rule plot_classification_score:
+    input:
+        "output/dimensionality_reduction/marrow/classification_score.tsv",
+    output:
+        "output/dimensionality_reduction/marrow/classification_score.svg",
+    run:
+        df = pd.read_csv(input[0], "\t")
+        df["Cell type"] = df["Cell type"].str.replace("_", " ")
+        df["Cell type"] = df["Cell type"].replace("hematopoietic stem cell", "HSC")
+        df["Cell type"] = df["Cell type"].replace("granulocytopoietic cell", "granulocytop.")
+        plt.figure(figsize=(4,3))
+        g = sns.barplot(x="Cell type", y="ROC_AUC", hue="Latent space", data=df, ci='sd', palette="Accent");
+        g.set_xticklabels(g.get_xticklabels(), rotation=45,  horizontalalignment='right')
+        g.set(xlabel="")
+        sns.despine()
+        #plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0., title="latent space");
+        plt.tight_layout()
+        plt.savefig(output[0], bbox_inches="tight")
 #
 #
 #rule get_marker_introns:
