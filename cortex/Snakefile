@@ -146,7 +146,7 @@ quantifications_gaba_subset = ["gene-expression", "kallisto", "bins", "exons", "
 
 rule all:
     input:
-        "output/dimensionality_reduction/classification_score.svg",
+        #"output/dimensionality_reduction/classification_score.svg",
         #"output/diff_spl/subclass_label/merged_significant_all_genes.svg",
         #expand("output/bam_regions/Mbnl2/{cell_type}/merged.bam", cell_type=genes_bam_merge["Mbnl2"]["cell_types"]),
         #expand("output/bam_regions/Khdrbs3/{cell_type}/merged.bam", cell_type=genes_bam_merge["Khdrbs3"]["cell_types"]),
@@ -186,7 +186,7 @@ rule all:
         #"output/quantification/introns-transitive-shuffled/adata_annotated.h5ad",
         #"output/dimensionality_reduction/classification_score.svg",
         #expand("output/plots/{gene}.svg", gene=genes_to_plot),
-        #expand("output/plots/{intron}.svg", intron=introns_to_plot),
+        expand("output/plots/{intron}.individual.svg", intron=introns_to_plot),
         #"output/comparison/shuffled/cell_type.pdf",
         #"output/comparison/exp_spl/cell_type.svg",
         #"output/diff_spl/subclass_label/merged_significant_all.svg",
@@ -878,6 +878,7 @@ rule psi_plot:
         "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
     output:
         expand("output/plots/{intron}.svg", intron=introns_to_plot),
+        expand("output/plots/{intron}.individual.svg", intron=introns_to_plot),
     run:
         adata = anndata.read_h5ad(input[0])
         print(adata.var.iloc[8066])
@@ -908,7 +909,7 @@ rule psi_plot:
                 sharey=True,
                 #height=1.5,
                 height=1.5,
-                aspect=0.5,
+                aspect=0.45,
             )
             eps = 1e-4
             g.map_dataframe(
@@ -919,12 +920,51 @@ rule psi_plot:
             )
             g.fig.subplots_adjust(wspace=0.1)
             g.set_titles(col_template="{col_name}")
+            g.set_xlabels("")
             g.set_ylabels("PSI")
             g.set(xticks=[])
             g.set(xlim=(0, 1), ylim=(0, 1))
             #sns.despine(bottom=True)
             sns.despine()
             plt.savefig(output[i], bbox_inches='tight')
+            plt.close()
+
+            most_common_individuals = obs.external_donor_name.value_counts()[:8].index.tolist()
+            obs = obs[obs.external_donor_name.isin(most_common_individuals)]
+            print(obs.external_donor_name.value_counts())
+            g = sns.FacetGrid(
+                obs,
+                col="Cell type",
+                col_order=cell_type_order,
+                row="external_donor_name",
+                row_order=most_common_individuals,
+                hue="Cell type",
+                hue_order=cell_type_order,
+                palette="tab10",
+                sharex=False,
+                sharey=True,
+                #height=1.5,
+                height=1.5,
+                aspect=1.0,
+                margin_titles=True,
+            )
+            g.map_dataframe(
+                sns.histplot,
+                y="PSI",
+                bins=np.linspace(0-eps, 1+eps, 11),
+                stat="probability",
+            )
+            g.fig.subplots_adjust(wspace=0.1, hspace=0.1)
+            g.set_titles(col_template="{col_name}", row_template="{row_name}")
+            g.set_xlabels("")
+            g.set_ylabels("PSI")
+            g.set(xticks=[])
+            g.set(xlim=(0, 1), ylim=(0, 1))
+            #sns.despine(bottom=True)
+            sns.despine()
+            plt.savefig(output[i+len(introns_to_plot)], bbox_inches='tight')
+            plt.close()
+
 
 
 rule exp_plot:
