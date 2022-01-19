@@ -35,8 +35,9 @@ genome_fasta_path = "/global/scratch/projects/fc_songlab/gbenegas/genomes/mus_mu
 n_total_samples_per_group = 300
 n_test_samples_per_group = [100, 200, 300]
 
-repeats = [str(x).zfill(2) if x < 10 else str(x) for x in np.arange(1, 2*n_total_samples_per_group+1)]
-sample_ids = expand("sample_{repeat}", repeat=repeats)
+groups = ["a", "b"]
+repeats = [str(x).zfill(2) if x < 10 else str(x) for x in np.arange(1, n_total_samples_per_group+1)]
+sample_ids = expand("{group}/sample_{repeat}", group=groups, repeat=repeats)
 sample_ids = np.array(sample_ids)
 subset_genes = 200
 subset_transcripts = 2
@@ -46,7 +47,7 @@ subset_genes_seed = 42
 groupings = ["introns-shared-acceptor"]
 methods = [
     "scQuint",
-    "BRIE2",
+    #"BRIE2",
     "DTUrtle",
     #"original_kallisto_permutation-Euclidean",
     #"assembly-unguided-merged_exons_permutation-Euclidean",
@@ -68,15 +69,18 @@ methods = [
 
 fold_changes = [1.5]
 #coverages = [0.16, 0.33, 1.0]
-coverages = [0.33, 1.0]
+#coverages = [0.33, 1.0]
+coverages = [1.0]
 #size_fractions = [0.05, 0.11, 0.33]
-size_fractions = [0.11, 0.33]
-#seeds = [100, 101, 102]
+#size_fractions = [0.11, 0.33]
+size_fractions = [0.33]
 seeds = [100]
+#biases = ["none", "cdnaf"]
+biases = ["cdnaf"]
 
-datasets = expand("{fold_change}_{coverage}_{size_fraction}_{seed}", fold_change=fold_changes, coverage=coverages, size_fraction=size_fractions, seed=seeds)
-references = ["unannotated_0", "unannotated_1"]
-#references = ["unannotated_de"]
+datasets = expand("{fold_change}_{coverage}_{size_fraction}_{seed}_{bias}", fold_change=fold_changes, coverage=coverages, size_fraction=size_fractions, seed=seeds, bias=biases)
+#references = ["unannotated_0", "unannotated_1"]
+references = ["unannotated_0"]
 
 
 def flip_coin():
@@ -85,19 +89,20 @@ def flip_coin():
 
 rule all:
     input:
+        "references/unannotated_0_truncated.fa",
         #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/100/DTUrtle/genes.tsv",
         #"output/1.5_1.0_0.33_100/unannotated_0/quantification/DTUrtle",
         #"output/1.5_1.0_0.33_100/unannotated_0/quantification/BRIE2/brie_count.h5ad",
-        "output/1.5_1.0_0.33_100/unannotated_0/quantification/SCATS_300/tmp/das_script",
+        #"output/1.5_1.0_0.33_100/unannotated_0/quantification/SCATS_300/tmp/das_script",
         #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/200/BRIE2/clusters.tsv",
         #"output/1.5_1.0_0.33_100/unannotated_0/results/300/summary.txt",
         #"output/1.5_1.0_0.33_100/unannotated_1/results/300/summary.txt",
-        #"output/results/all.pdf",
+        "output/results/all.pdf",
         #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/clusters.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
         #expand("output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
         #expand("output/{dataset}/{reference}/bam_paths.txt", dataset=datasets, reference=references),
         #expand("output/{dataset}/{reference}/reference.gtf", dataset=datasets, reference=references),
-        #expand("output/{dataset}/fastq", dataset=datasets),
+        #expand("output/{dataset}/fastq/{group}", dataset=datasets, group=groups),
         #expand("output/{dataset}/fastq", dataset=datasets),
         #"output/1.5_0.33_0.11_100/unannotated_0/results/null/p_value_dist.pdf",
         #expand("output/{dataset}/{reference}/quantification/original/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
@@ -225,7 +230,7 @@ rule prepare_simulation_params:
     input:
         "references/gene_transcript_info.txt"
     output:
-        "output/{fold_change}_{coverage}_{size_fraction}_{seed}/simulation_params.txt",
+        "output/{fold_change}_{coverage}_{size_fraction}_{seed}_{bias}/simulation_params.txt",
     run:
         diff_fold_change = float(wildcards["fold_change"])
         diff_fold_change_rec = 1.0 / diff_fold_change
@@ -297,17 +302,40 @@ rule mask_gtf:
         df.to_csv(output[0], "\t", header=False, index=False, quoting=csv.QUOTE_NONE)
 
 
+rule truncate_fasta:
+    input:
+        "references/unannotated_0.fa",
+    output:
+        "references/unannotated_0_truncated.fa",
+    run:
+        from Bio import SeqIO
+        records = list(SeqIO.parse(input[0], "fasta"))
+        print([len(record) for record in records])
+        new_records = []
+        for i in range(len(records)//2):
+            r1 = records[2*i]
+            r2 = records[2*i+1]
+            l = min(len(r1), len(r2))
+            new_records.append(r1[-l:])
+            new_records.append(r2[-l:])
+        print([len(record) for record in new_records])
+        SeqIO.write(new_records, output[0], "fasta")
+
+
 rule simulate_reads:
     input:
         "references/unannotated_0.fa",
-        "output/{fold_change}_{coverage}_{size_fraction}_{seed}/simulation_params.txt",
+        "output/{fold_change}_{coverage}_{size_fraction}_{seed}_{bias}/simulation_params.txt",
+        "references/unannotated_0_truncated.fa",
     output:
-        directory("output/{fold_change}_{coverage}_{size_fraction}_{seed}/fastq")
+        directory("output/{fold_change}_{coverage}_{size_fraction}_{seed}_{bias}/fastq/{group}")
     shell:
-        "Rscript run_polyester.R {input[0]} {input[1]} {n_total_samples_per_group} {wildcards.seed} {output}"
+        "Rscript run_polyester.R {input[0]} {input[1]} {n_total_samples_per_group} {wildcards.seed} {wildcards.group} {wildcards.bias} {output} {input[2]}"
 
 
 rule prepare_fastq_paths:
+    input:
+        expand("output/{{dataset}}/fastq/{group}", group=groups),
     output:
         "output/{dataset}/fastq_paths.txt"
     run:
@@ -333,7 +361,6 @@ rule prepare_chromosomes_file:
 
 rule read_mapping:
     input:
-        "output/{dataset}/fastq",
         "output/{dataset}/fastq_paths.txt",
         "output/{dataset}/{reference}/reference.gtf"
     threads: workflow.cores
@@ -750,9 +777,13 @@ rule dataset_results:
             else:
                 return x
 
+        print(df.shape)
+        df = df.dropna()
+        print(df.shape)
+
         for method in methods:
             np.random.seed(42)
-            print(df[method].apply(fill_at_random))
+            #auc = np.mean([roc_auc_score(~df.differential.astype(int), df[method].apply(fill_at_random)) for _ in range(100)])
             auc = np.mean([roc_auc_score(~df.differential.astype(int), df[method].apply(fill_at_random)) for _ in range(100)])
             summary.append([method, auc])
         summary = pd.DataFrame(summary, columns=["Method", "AUC"])
@@ -768,13 +799,14 @@ rule overall_results:
         "output/results/summary.txt"
     run:
         overall_summary = []
-        for fold_change, coverage, size_fraction, seed, reference, n_samples in itertools.product(fold_changes, coverages, size_fractions, seeds, references, n_test_samples_per_group):
-            path = f"output/{fold_change}_{coverage}_{size_fraction}_{seed}/{reference}/results/{n_samples}/summary.txt"
+        for fold_change, coverage, size_fraction, seed, bias, reference, n_samples in itertools.product(fold_changes, coverages, size_fractions, seeds, biases, references, n_test_samples_per_group):
+            path = f"output/{fold_change}_{coverage}_{size_fraction}_{seed}_{bias}/{reference}/results/{n_samples}/summary.txt"
             summary = pd.read_csv(path, "\t")
             summary["Fold change"] = fold_change
             summary["Coverage"] = coverage
             summary["size_fraction"] = size_fraction
             summary["seed"] = seed
+            summary["bias"] = bias
             summary["Reference"] = reference
             summary["N cells"] = n_samples
             overall_summary.append(summary)
@@ -831,7 +863,8 @@ rule plot_overall_results:
             x="N cells",
             y="AUC",
             hue="Method",
-            style="DE transcript",
+            #style="DE transcript",
+            style="bias",
             col="var_coeff",
             #col_order=[21, 10, 4],
             col_order=[10, 4],
