@@ -70,7 +70,8 @@ methods = [
 fold_changes = [1.5]
 #coverages = [0.16, 0.33, 1.0]
 #coverages = [0.33, 1.0]
-coverages = [1.0]
+#coverages = [1.0]
+coverages = [2.0]
 #size_fractions = [0.05, 0.11, 0.33]
 #size_fractions = [0.11, 0.33]
 size_fractions = [0.33]
@@ -89,7 +90,7 @@ def flip_coin():
 
 rule all:
     input:
-        "references/unannotated_0_truncated.fa",
+        #"references/unannotated_0_truncated.fa",
         #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/100/DTUrtle/genes.tsv",
         #"output/1.5_1.0_0.33_100/unannotated_0/quantification/DTUrtle",
         #"output/1.5_1.0_0.33_100/unannotated_0/quantification/BRIE2/brie_count.h5ad",
@@ -98,6 +99,7 @@ rule all:
         #"output/1.5_1.0_0.33_100/unannotated_0/results/300/summary.txt",
         #"output/1.5_1.0_0.33_100/unannotated_1/results/300/summary.txt",
         "output/results/all.pdf",
+        #"references/gene_transcript_info.txt"
         #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/clusters.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
         #expand("output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
         #expand("output/{dataset}/{reference}/bam_paths.txt", dataset=datasets, reference=references),
@@ -126,6 +128,7 @@ rule make_empty_blacklist:
 rule filter_gtf:
     input:
         original_gtf_path,
+        "/global/scratch/projects/fc_songlab/gbenegas/projects/scquint-analysis/tabula_muris/brie_experiments/AS_events/SE.gtf",
     output:
         "references/unannotated_0.gtf",
         "references/gene_transcript_info.txt"
@@ -135,69 +138,143 @@ rule filter_gtf:
             names=['chromosome', 'source', 'feature', 'start', 'end', 'score', 'strand', 'frame', 'attribute'],
         )
         print(df.shape)
+        chromosomes = ["chr1", "chr2", "chr3"]
+        print("subsetting chromosomes")
+        df = df[df.chromosome.isin(chromosomes)]
+        print(df.shape)
         df['gene_id'] = df.attribute.str.extract(r'gene_id "([^;]*)";')
         df['transcript_id'] = df.attribute.str.extract(r'transcript_id "([^;]*)";')
-        gene_biotype = df.attribute.str.extract(r'gene_biotype "([^;]*)";').values.ravel()
-        df_exon = df[df.feature=="exon"]
-        df_exon = df_exon[df_exon.attribute.str.contains('tag "basic";', regex=False)]
 
-        df = df.iloc[(gene_biotype == "protein_coding")]
-        print(df.shape)
-        n_transcripts_per_gene = df_exon.groupby("gene_id").transcript_id.nunique()
-        df = df.iloc[(n_transcripts_per_gene[df.gene_id.values] >= subset_transcripts).values]
-        print(df.shape)
 
-        gene_ids = df.gene_id.unique()
-        np.random.seed(subset_genes_seed)
-        genes_to_include = np.random.choice(gene_ids, size=subset_genes,replace=False)
-        df = df[df.gene_id.isin(genes_to_include)]
-        print(df.shape)
 
-        df_exon = df_exon[df_exon.gene_id.isin(genes_to_include)]
-        df = df[(df.transcript_id.isin(df_exon.transcript_id.unique())) | (df.feature=="gene")]
+        SE_gtf = pd.read_csv(
+            input[1], '\t', header=None, comment="#",
+            names=['chromosome', 'source', 'feature', 'start', 'end', 'score', 'strand', 'frame', 'attribute'],
+        )
+        print("subsetting chromosomes again")
+        SE_gtf = SE_gtf[SE_gtf.chromosome.isin(chromosomes)]
+        SE_gtf['gene_id'] = SE_gtf.attribute.str.extract(r'gene_id "([^;]*)";')
+        SE_gtf['transcript_id'] = SE_gtf.attribute.str.extract(r'transcript_id "([^;]*)";')
 
-        # here should filter to transcript feature, to have no dups
-        transcripts_to_include = df[df.feature=="transcript"].groupby("gene_id").transcript_id.sample(n=subset_transcripts, replace=False, random_state=subset_genes_seed).values
-        df = df[(df.transcript_id.isin(transcripts_to_include)) | (df.feature=="gene")]
-        print(df.shape)
+        SE_gtf["coordinates"] = SE_gtf.chromosome + ":" + SE_gtf.start.astype(str) + "-" + SE_gtf.end.astype(str)
+        SE_exons = SE_gtf[SE_gtf.feature=="exon"].sort_values(["chromosome", "start", "end"]).groupby("transcript_id").coordinates.apply(",".join)
 
-        # TODO: should now filter non-overlap 3'
-        tqdm.pandas()
-        df_exon = df[df.feature=="exon"]
+        df["coordinates"] = df.chromosome + ":" + df.start.astype(str) + "-" + df.end.astype(str)
+        tx_exons = df[df.feature=="exon"].sort_values(["chromosome", "start", "end"]).groupby("transcript_id").coordinates.apply(",".join)
 
-        def get_transcript_introns(df_transcript):
-            df_transcript = df_transcript.sort_values("start")
-            exon_pairs = more_itertools.pairwise(df_transcript.loc[:, ["start", "end"]].values)
-            introns = [[e1[1], e2[0]] for e1, e2 in exon_pairs]
-            return introns
+        def find_transcripts(se_rows):
+            se_txs = se_rows.transcript_id.unique()
+            if len(se_txs) != 2: return []
+            se_t1, se_t2 = se_txs
+            se_e1 = SE_exons.loc[se_t1]
+            se_e2 = SE_exons.loc[se_t2]
 
-        def check_overlapping_introns(introns1, introns2, strand):
-            for s1, e1 in introns1:
-                for s2, e2 in introns2:
-                    if strand == "+":
-                        if s1 != s2 and e1 == e2:
-                            return True
-                    elif strand == "-":
-                        if s1 == s2 and e1 != e2:
-                            return True
-                    else:
-                        print(f"strange strand: {strand}")
-            return False
+            t1s = tx_exons[tx_exons.str.contains(se_e1)].index.values
+            t2s = tx_exons[tx_exons.str.contains(se_e2)].index.values
 
-        def check_overlapping_introns_gene(df_gene):
-            transcript_introns = df_gene.groupby("transcript_id").apply(get_transcript_introns).values
-            comparisons = []
-            for i, introns1 in enumerate(transcript_introns):
-                for j, introns2 in enumerate(transcript_introns):
-                    if i < j:
-                        comparisons.append(check_overlapping_introns(introns1, introns2, df_gene.strand.values[0]))
-            return np.all(comparisons)
+            for t1 in t1s:
+                substring1 = tx_exons.loc[t1].replace(se_e1, "")
+                for t2 in t2s:
+                    substring2 = tx_exons.loc[t2].replace(se_e2, "")
+                    if substring1 == substring2: return [t1, t2]
+            return []
 
-        gene_id_overlapping = df_exon.groupby("gene_id").progress_apply(check_overlapping_introns_gene).reset_index()
-        print(gene_id_overlapping)
-        genes_to_keep = gene_id_overlapping[gene_id_overlapping.loc[:, 0]].gene_id.values
-        df = df[df.gene_id.isin(genes_to_keep)]
-        print(df.shape)
+        tx_pairs = SE_gtf.groupby("gene_id").apply(find_transcripts).to_frame().rename(columns={0: "tx_pair"})
+        print(tx_pairs)
+        tx_pairs = tx_pairs[tx_pairs.tx_pair.apply(len) > 0]
+
+        tx2gene = df[["transcript_id", "gene_id"]].drop_duplicates().set_index("transcript_id")
+        tx_pairs["gene_id"] = tx_pairs.tx_pair.apply(lambda txs: tx2gene.loc[txs].gene_id.values[0])
+        print(tx_pairs)
+        tx_pairs = tx_pairs.drop_duplicates("gene_id")
+        print(tx_pairs)
+
+        target_transcripts = np.concatenate(tx_pairs.tx_pair.values)
+        print(target_transcripts)
+        print(len(target_transcripts))
+        target_genes = df[df.transcript_id.isin(target_transcripts)].gene_id.unique()
+        df = df[df.gene_id.isin(target_genes)]
+        df = df[(df.transcript_id.isin(target_transcripts)) | (df.feature=="gene")]
+        df = df.drop(columns=["coordinates"])
+
+        #target_transcripts = ["Pex1-201", "Pex1-202", "Adam22-210", "Adam22-213", "Dmtf1-201", "Dmtf1-202", "Magi2-205", "Magi2-201", "Chpf-201", "Chpf-202", "Klhl7-201", "Klhl7-202"]
+        #target_genes = ["Pex1", "Adam22", "Dmtf1", "Magi2", "Chpf", "Klhl7"]
+        #df["gene_name"] = df.attribute.str.extract(r'gene_name "([^;]*)";')
+        #df = df[df.gene_name.isin(target_genes)]
+        #df["transcript_name"] = df.attribute.str.extract(r'transcript_name "([^;]*)";')
+        #df = df[(df.transcript_name.isin(target_transcripts)) | (df.feature=="gene")]
+        #print(df.shape)
+        #df = df.drop(columns=["gene_name", "transcript_name"])
+
+
+
+
+
+
+
+
+
+        #gene_biotype = df.attribute.str.extract(r'gene_biotype "([^;]*)";').values.ravel()
+        #df_exon = df[df.feature=="exon"]
+        #df_exon = df_exon[df_exon.attribute.str.contains('tag "basic";', regex=False)]
+
+        #df = df.iloc[(gene_biotype == "protein_coding")]
+        #print(df.shape)
+        #n_transcripts_per_gene = df_exon.groupby("gene_id").transcript_id.nunique()
+        #df = df.iloc[(n_transcripts_per_gene[df.gene_id.values] >= subset_transcripts).values]
+        #print(df.shape)
+
+        #gene_ids = df.gene_id.unique()
+        #np.random.seed(subset_genes_seed)
+        #genes_to_include = np.random.choice(gene_ids, size=subset_genes,replace=False)
+        #df = df[df.gene_id.isin(genes_to_include)]
+        #print(df.shape)
+
+        #df_exon = df_exon[df_exon.gene_id.isin(genes_to_include)]
+        #df = df[(df.transcript_id.isin(df_exon.transcript_id.unique())) | (df.feature=="gene")]
+
+        ## here should filter to transcript feature, to have no dups
+        #transcripts_to_include = df[df.feature=="transcript"].groupby("gene_id").transcript_id.sample(n=subset_transcripts, replace=False, random_state=subset_genes_seed).values
+        #df = df[(df.transcript_id.isin(transcripts_to_include)) | (df.feature=="gene")]
+        #print(df.shape)
+
+        ## TODO: should now filter non-overlap 3'
+        #tqdm.pandas()
+        #df_exon = df[df.feature=="exon"]
+
+        #def get_transcript_introns(df_transcript):
+        #    df_transcript = df_transcript.sort_values("start")
+        #    exon_pairs = more_itertools.pairwise(df_transcript.loc[:, ["start", "end"]].values)
+        #    introns = [[e1[1], e2[0]] for e1, e2 in exon_pairs]
+        #    return introns
+
+        #def check_overlapping_introns(introns1, introns2, strand):
+        #    for s1, e1 in introns1:
+        #        for s2, e2 in introns2:
+        #            if strand == "+":
+        #                if s1 != s2 and e1 == e2:
+        #                    return True
+        #            elif strand == "-":
+        #                if s1 == s2 and e1 != e2:
+        #                    return True
+        #            else:
+        #                print(f"strange strand: {strand}")
+        #    return False
+
+        #def check_overlapping_introns_gene(df_gene):
+        #    transcript_introns = df_gene.groupby("transcript_id").apply(get_transcript_introns).values
+        #    comparisons = []
+        #    for i, introns1 in enumerate(transcript_introns):
+        #        for j, introns2 in enumerate(transcript_introns):
+        #            if i < j:
+        #                comparisons.append(check_overlapping_introns(introns1, introns2, df_gene.strand.values[0]))
+        #    return np.all(comparisons)
+
+        #gene_id_overlapping = df_exon.groupby("gene_id").progress_apply(check_overlapping_introns_gene).reset_index()
+        #print(gene_id_overlapping)
+        #genes_to_keep = gene_id_overlapping[gene_id_overlapping.loc[:, 0]].gene_id.values
+        #df = df[df.gene_id.isin(genes_to_keep)]
+        #print(df.shape)
 
         gene_transcript_info = df[["gene_id", "transcript_id"]].drop_duplicates().dropna()
         print(gene_transcript_info.shape)
