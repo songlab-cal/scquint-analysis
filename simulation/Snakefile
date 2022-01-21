@@ -39,6 +39,7 @@ groups = ["a", "b"]
 repeats = [str(x).zfill(2) if x < 10 else str(x) for x in np.arange(1, n_total_samples_per_group+1)]
 sample_ids = expand("{group}/sample_{repeat}", group=groups, repeat=repeats)
 sample_ids = np.array(sample_ids)
+sample_ids2 = np.array([s.replace("/", ".") for s in sample_ids])  # unfortunately needed for leafcutter
 subset_genes = 200
 subset_transcripts = 2
 subset_genes_seed = 42
@@ -70,14 +71,14 @@ methods = [
 fold_changes = [1.5]
 #coverages = [0.16, 0.33, 1.0]
 #coverages = [0.33, 1.0]
-#coverages = [1.0]
-coverages = [2.0]
+coverages = [1.0]
+#coverages = [1.0, 2.0]
 #size_fractions = [0.05, 0.11, 0.33]
 #size_fractions = [0.11, 0.33]
 size_fractions = [0.33]
 seeds = [100]
-#biases = ["none", "cdnaf"]
-biases = ["cdnaf"]
+biases = ["none", "cdnaf"]
+#biases = ["cdnaf"]
 
 datasets = expand("{fold_change}_{coverage}_{size_fraction}_{seed}_{bias}", fold_change=fold_changes, coverage=coverages, size_fraction=size_fractions, seed=seeds, bias=biases)
 #references = ["unannotated_0", "unannotated_1"]
@@ -90,6 +91,8 @@ def flip_coin():
 
 rule all:
     input:
+        expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/LeafCutter/_cluster_significance.txt", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
+        #expand("output/{dataset}/{reference}/quantification/LeafCutter/_perind_numers.counts.gz", dataset=datasets, reference=references),
         #"references/unannotated_0_truncated.fa",
         #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/100/DTUrtle/genes.tsv",
         #"output/1.5_1.0_0.33_100/unannotated_0/quantification/DTUrtle",
@@ -98,7 +101,7 @@ rule all:
         #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/200/BRIE2/clusters.tsv",
         #"output/1.5_1.0_0.33_100/unannotated_0/results/300/summary.txt",
         #"output/1.5_1.0_0.33_100/unannotated_1/results/300/summary.txt",
-        "output/results/all.pdf",
+        #"output/results/all.pdf",
         #"references/gene_transcript_info.txt"
         #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/clusters.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
         #expand("output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
@@ -477,6 +480,71 @@ rule scQuint_quantification:
         expand("output/{{dataset}}/{{reference}}/quantification/scQuint/output/{grouping}/adata.h5ad", grouping=groupings),
     shell:
         "python -m scquint.quantification.run introns/Snakefile --cores {threads} -d output/{wildcards.dataset}/{wildcards.reference}/quantification/scQuint/ --config min_cells_per_intron=10 bam_paths=../../bam_paths.txt chromosomes_path=../../chromosomes.txt fasta_path={genome_fasta_path} gtf_path=../../reference.gtf chrom_sizes_path={chrom_sizes_path} sjdb_path=../../mapping/first_STAR_index/sjdbList.out.tab"
+
+
+rule LeafCutter_extract:
+    input:
+        lambda wildcards: f"output/{wildcards.dataset}/{wildcards.reference}/mapping/rmdup/{wildcards.sample_id.replace('.', '/')}/Aligned.rmdup.out.bam",
+    output:
+        "output/{dataset}/{reference}/quantification/LeafCutter/juncs/{sample_id}.junc",
+    shell:
+        """
+        regtools junctions extract -s 0 -a 8 -m 50 -M 500000 {input} -o {output}
+        """
+
+
+rule LeafCutter_prepare_junc_files:
+    input:
+        expand("output/{{dataset}}/{{reference}}/quantification/LeafCutter/juncs/{sample_id}.junc", sample_id=sample_ids2),
+    output:
+        "output/{dataset}/{reference}/quantification/LeafCutter/juncfiles.txt",
+    run:
+        for path in input:
+            shell(f"echo {path} >> {output}")
+
+
+rule LeafCutter_cluster:
+    input:
+        "output/{dataset}/{reference}/quantification/LeafCutter/juncfiles.txt",
+    output:
+        "output/{dataset}/{reference}/quantification/LeafCutter/_perind_numers.counts.gz",
+    params:
+        "output/{dataset}/{reference}/quantification/LeafCutter/"
+    threads:
+        workflow.cores  # important to avoid overwriting temp files
+    shell:
+        """
+        module load python/2.7 &&
+        python ./leafcutter/clustering/leafcutter_cluster_regtools.py --checkchrom -j {input} -o {params} -l 500000 &&
+        module unload python/2.7
+        """
+
+rule LeafCutter_prepare_groups_file:
+    output:
+        "output/{dataset}/{reference}/differential_splicing/{n_samples}/LeafCutter/input.tsv",
+    run:
+        cell_idx_a = np.arange(int(wildcards["n_samples"]))
+        cell_idx_b = np.arange(int(wildcards["n_samples"])) + n_total_samples_per_group
+        cell_idx = np.concatenate([cell_idx_a, cell_idx_b])
+        samID = sample_ids2[cell_idx]
+        condition = np.ones_like(samID)
+        condition[:len(cell_idx_a)] = 0
+        pd.DataFrame(dict(samID=samID, condition=condition)).to_csv(output[0], "\t", index=False, header=False)
+
+
+rule leafcutter_diff_spl:
+    input:
+        "output/{dataset}/{reference}/quantification/LeafCutter/_perind_numers.counts.gz",
+        "output/{dataset}/{reference}/differential_splicing/{n_samples}/LeafCutter/input.tsv",
+        "leafcutter/scripts/mm10.txt.gz",
+    output:
+        "output/{dataset}/{reference}/differential_splicing/{n_samples}/LeafCutter/_cluster_significance.txt",
+    params:
+        "output/{dataset}/{reference}/differential_splicing/{n_samples}/LeafCutter/",
+    threads:
+        workflow.cores
+    shell:
+        "./leafcutter/scripts/leafcutter_ds.R --exon_file {input[2]} --num_threads {threads} --min_samples_per_intron 30 --min_samples_per_group 30 --min_coverage 1 --max_cluster_size=10 -o {params} {input[0]} {input[1]}"
 
 
 rule get_gene_strand:
