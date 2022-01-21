@@ -79,11 +79,18 @@ coverages = [1.0]
 size_fractions = [0.33]
 seeds = [100]
 biases = ["none", "cdnaf"]
+#biases = ["none"]
 #biases = ["cdnaf"]
 
 datasets = expand("{fold_change}_{coverage}_{size_fraction}_{seed}_{bias}", fold_change=fold_changes, coverage=coverages, size_fraction=size_fractions, seed=seeds, bias=biases)
-#references = ["unannotated_0", "unannotated_1"]
-references = ["unannotated_0"]
+references = ["unannotated_0", "unannotated_1"]
+#references = ["unannotated_0"]
+
+dataset_references = np.concatenate([
+    expand("{fold_change}_{coverage}_{size_fraction}_{seed}_{bias}/unannotated_0", fold_change=fold_changes, coverage=coverages, size_fraction=size_fractions, seed=seeds, bias=biases),
+    expand("{fold_change}_{coverage}_{size_fraction}_{seed}_none/unannotated_1", fold_change=fold_changes, coverage=coverages, size_fraction=size_fractions, seed=seeds)
+])
+print(dataset_references)
 
 
 def flip_coin():
@@ -486,11 +493,12 @@ rule scQuint_quantification:
 rule LeafCutter_extract:
     input:
         lambda wildcards: f"output/{wildcards.dataset}/{wildcards.reference}/mapping/rmdup/{wildcards.sample_id.replace('.', '/')}/Aligned.rmdup.out.bam",
+        lambda wildcards: f"output/{wildcards.dataset}/{wildcards.reference}/mapping/rmdup/{wildcards.sample_id.replace('.', '/')}/Aligned.rmdup.out.bam.bai",
     output:
         "output/{dataset}/{reference}/quantification/LeafCutter/juncs/{sample_id}.junc",
     shell:
         """
-        regtools junctions extract -s 0 -a 8 -m 50 -M 500000 {input} -o {output}
+        regtools junctions extract -s 0 -a 8 -m 50 -M 500000 {input[0]} -o {output}
         """
 
 
@@ -921,6 +929,7 @@ rule dataset_results:
         summary = []
         for method in methods:
             res = pd.read_csv(f"output/{wildcards['dataset']}/{wildcards['reference']}/differential_splicing/{wildcards['n_samples']}/{method}/genes.tsv", "\t").set_index("gene_id")
+            print(method, res)
             df[method] = res.reindex(df.index.values).p_value_gene_adj
             print(method, wildcards["reference"])
             print(df[method])
@@ -947,14 +956,25 @@ rule dataset_results:
             else:
                 return x
 
-        print(df.shape)
-        df = df.dropna()
-        print(df.shape)
+        #print(df.shape)
+        #df = df.dropna()
+        #print(df.shape)
 
         for method in methods:
             np.random.seed(42)
             #auc = np.mean([roc_auc_score(~df.differential.astype(int), df[method].apply(fill_at_random)) for _ in range(100)])
-            auc = np.mean([roc_auc_score(~df.differential.astype(int), df[method].apply(fill_at_random)) for _ in range(100)])
+            y_true = ~df.differential.astype(int)
+            y_score = df[method]
+            print(y_score)
+            #mask = ~np.isnan(y_score)
+            mask = ~y_score.isna()
+            print("sum(mask): ", sum(mask))
+            y_true = y_true[mask]
+            y_score = y_score[mask]
+            if len(y_true) > 0:
+                auc = roc_auc_score(y_true, y_score)
+            else:
+                auc = 0.5
             summary.append([method, auc])
         summary = pd.DataFrame(summary, columns=["Method", "AUC"])
         print(summary)
@@ -964,12 +984,15 @@ rule dataset_results:
 
 rule overall_results:
     input:
-        expand("output/{dataset}/{reference}/results/{n_samples}/summary.txt", dataset=datasets, reference=references, n_samples=n_test_samples_per_group)
+        expand("output/{dataset_reference}/results/{n_samples}/summary.txt", dataset_reference=dataset_references, n_samples=n_test_samples_per_group)
     output:
         "output/results/summary.txt"
     run:
         overall_summary = []
-        for fold_change, coverage, size_fraction, seed, bias, reference, n_samples in itertools.product(fold_changes, coverages, size_fractions, seeds, biases, references, n_test_samples_per_group):
+        #for fold_change, coverage, size_fraction, seed, bias, reference, n_samples in itertools.product(fold_changes, coverages, size_fractions, seeds, biases, references, n_test_samples_per_group):
+        for dataset_reference, n_samples in itertools.product(dataset_references, n_test_samples_per_group):
+            dataset, reference = dataset_reference.split("/")
+            fold_change, coverage, size_fraction, seed, bias = dataset.split("_")
             path = f"output/{fold_change}_{coverage}_{size_fraction}_{seed}_{bias}/{reference}/results/{n_samples}/summary.txt"
             summary = pd.read_csv(path, "\t")
             summary["Fold change"] = fold_change
@@ -991,8 +1014,12 @@ rule plot_overall_results:
         "output/results/all.pdf",
     run:
         df = pd.read_csv(input[0], "\t")
-        df = df.replace("unannotated_0", "Annotated")
-        df = df.replace("unannotated_1", "Unannotated")
+        df["Experiment"] = "None"
+        df.loc[df.Reference=="unannotated_1", "Experiment"] = "Unannotated"
+        df.loc[df.bias=="cdnaf", "Experiment"] = "Coverage decay"
+        print(df.Experiment.value_counts())
+        #df = df.replace("unannotated_0", "Annotated")
+        #df = df.replace("unannotated_1", "Unannotated")
         #df = df.replace("original_brie", "BRIE")
         #df = df.replace("original_kallisto_permutation-Euclidean", "kallisto")
         #df = df.replace("original_bins-nmf_permutation-Euclidean", "ODEGRfinder")
@@ -1005,7 +1032,7 @@ rule plot_overall_results:
         #df = df[df.Method.str.startswith("Ours")]
         #df = df[df.Method.isin(["BRIE", "kallisto", "ODEGRfinder", "Alternative introns (ours)"])]
         #df = df[df.Method.isin(["BRIE", "kallisto", "ODEGRfinder", "Alt. introns shared 3' (ours)"])]
-        df = df.rename(columns={"Reference": "DE transcript"})
+        #df = df.rename(columns={"Reference": "DE transcript"})
         #df = df[df.Method.isin(["BRIE", "kallisto", "ODEGRfinder", "Ours (reassembled exons)"])]
 
         # fig, axarr = plt.subplots(len(coverages), len(size_fractions), figsize=(6*len(coverages), 6*len(size_fractions)))
@@ -1034,7 +1061,8 @@ rule plot_overall_results:
             y="AUC",
             hue="Method",
             #style="DE transcript",
-            style="bias",
+            #style="bias",
+            style="Experiment",
             col="var_coeff",
             #col_order=[21, 10, 4],
             col_order=sorted(df.var_coeff.unique(), reverse=True),
