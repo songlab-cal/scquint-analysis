@@ -50,6 +50,7 @@ methods = [
     "scQuint",
     #"BRIE2",
     "DTUrtle",
+    "LeafCutter",
     #"original_kallisto_permutation-Euclidean",
     #"assembly-unguided-merged_exons_permutation-Euclidean",
     #"original_bins-nmf_permutation-Euclidean",
@@ -91,7 +92,7 @@ def flip_coin():
 
 rule all:
     input:
-        expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/LeafCutter/_cluster_significance.txt", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
+        #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/LeafCutter/genes.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
         #expand("output/{dataset}/{reference}/quantification/LeafCutter/_perind_numers.counts.gz", dataset=datasets, reference=references),
         #"references/unannotated_0_truncated.fa",
         #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/100/DTUrtle/genes.tsv",
@@ -101,7 +102,7 @@ rule all:
         #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/200/BRIE2/clusters.tsv",
         #"output/1.5_1.0_0.33_100/unannotated_0/results/300/summary.txt",
         #"output/1.5_1.0_0.33_100/unannotated_1/results/300/summary.txt",
-        #"output/results/all.pdf",
+        "output/results/all.pdf",
         #"references/gene_transcript_info.txt"
         #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/clusters.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
         #expand("output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
@@ -545,6 +546,30 @@ rule leafcutter_diff_spl:
         workflow.cores
     shell:
         "./leafcutter/scripts/leafcutter_ds.R --exon_file {input[2]} --num_threads {threads} --min_samples_per_intron 30 --min_samples_per_group 30 --min_coverage 1 --max_cluster_size=10 -o {params} {input[0]} {input[1]}"
+
+
+rule clean_leafcutter_output:
+    input:
+        "{anything}/_cluster_significance.txt",
+        "input/gene_name.txt",
+        "references/gene_transcript_info.txt",
+    output:
+        "{anything}/genes.tsv",
+    run:
+        clusters = pd.read_csv(input[0], "\t")
+        clusters = clusters[clusters.status=="Success"]
+        clusters = clusters.sort_values("p")
+        #clusters.rename(columns={"p.adjust": "p_value_gene_adj", "genes": "gene_name"}, inplace=True)
+        clusters.rename(columns={"p": "p_value_gene_adj", "genes": "gene_name"}, inplace=True)
+
+        gene_name_to_id = pd.read_csv(input[1], "\t", index_col=1)
+        target_genes = pd.read_csv(input[2], "\t").gene_id.unique()
+        gene_name_to_id = gene_name_to_id[gene_name_to_id.gene_id.isin(target_genes)]
+        print(gene_name_to_id)
+
+        clusters["gene_id"] = clusters.gene_name.apply(lambda genes: [gene_name_to_id.loc[gene_name].gene_id for gene_name in genes.split(",") if gene_name in gene_name_to_id.index.values][0])
+        print(clusters)
+        clusters.to_csv(output[0], "\t", index=False)
 
 
 rule get_gene_strand:
@@ -1012,7 +1037,7 @@ rule plot_overall_results:
             style="bias",
             col="var_coeff",
             #col_order=[21, 10, 4],
-            col_order=[10, 4],
+            col_order=sorted(df.var_coeff.unique(), reverse=True),
             row="Coverage",
             facet_kws=dict(margin_titles=True),
             kind="line",
