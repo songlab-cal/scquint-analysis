@@ -48,9 +48,9 @@ subset_genes_seed = 42
 groupings = ["introns-shared-acceptor"]
 methods = [
     "scQuint",
-    #"BRIE2",
-    "DTUrtle",
     "LeafCutter",
+    "DTUrtle",
+    "BRIE2",
     #"original_kallisto_permutation-Euclidean",
     #"assembly-unguided-merged_exons_permutation-Euclidean",
     #"original_bins-nmf_permutation-Euclidean",
@@ -705,7 +705,7 @@ rule BRIE2_quantification:
         mkdir -p output/{wildcards.dataset}/{wildcards.reference}/quantification/BRIE2 &&
         cd output/{wildcards.dataset}/{wildcards.reference}/quantification/BRIE2 &&
         /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/briekit-event -a ../../reference.gtf -o AS_events &&
-        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/briekit-event-filter -a AS_events/SE.gff3.gz --anno_ref=../../reference.gtf -r {genome_fasta_path} &&
+        /global/scratch/projects/fc_songlab/gbenegas/software/miniconda2/bin/briekit-event-filter -a AS_events/SE.gff3.gz --anno_ref=../../reference.gtf -r {genome_fasta_path} --keep_overlap --no_splice_site --as_exon_min=1 --as_exon_max=10000 --as_exon_tss=1 --as_exon_tts=1 &&
         brie-count -a AS_events/SE.filtered.gff3.gz -S ../../bam_paths.txt.swap.txt -o . -p {threads}
         """
 
