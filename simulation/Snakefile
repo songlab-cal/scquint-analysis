@@ -72,11 +72,11 @@ methods = [
 fold_changes = [1.5]
 #coverages = [0.16, 0.33, 1.0]
 #coverages = [0.33, 1.0]
-coverages = [1.0]
+coverages = [1.0, 2.0]
 #coverages = [1.0, 2.0]
 #size_fractions = [0.05, 0.11, 0.33]
 #size_fractions = [0.11, 0.33]
-size_fractions = [0.33]
+size_fractions = [0.143, 0.33]
 seeds = [100]
 biases = ["none", "cdnaf"]
 #biases = ["none"]
@@ -99,6 +99,7 @@ def flip_coin():
 
 rule all:
     input:
+        "output/results/relplot.pdf",
         #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/LeafCutter/genes.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
         #expand("output/{dataset}/{reference}/quantification/LeafCutter/_perind_numers.counts.gz", dataset=datasets, reference=references),
         #"references/unannotated_0_truncated.fa",
@@ -109,7 +110,6 @@ rule all:
         #"output/1.5_1.0_0.33_100/unannotated_0/differential_splicing/200/BRIE2/clusters.tsv",
         #"output/1.5_1.0_0.33_100/unannotated_0/results/300/summary.txt",
         #"output/1.5_1.0_0.33_100/unannotated_1/results/300/summary.txt",
-        "output/results/all.pdf",
         #"references/gene_transcript_info.txt"
         #expand("output/{dataset}/{reference}/differential_splicing/{n_samples}/scQuint/clusters.tsv", dataset=datasets, reference=references, n_samples=n_test_samples_per_group),
         #expand("output/{dataset}/{reference}/quantification/scQuint/output/introns-shared-acceptor/adata.h5ad", dataset=datasets, reference=references),
@@ -149,10 +149,10 @@ rule filter_gtf:
             names=['chromosome', 'source', 'feature', 'start', 'end', 'score', 'strand', 'frame', 'attribute'],
         )
         print(df.shape)
-        chromosomes = ["chr1", "chr2", "chr3"]
-        print("subsetting chromosomes")
-        df = df[df.chromosome.isin(chromosomes)]
-        print(df.shape)
+        #chromosomes = ["chr1", "chr2", "chr3"]
+        #print("subsetting chromosomes")
+        #df = df[df.chromosome.isin(chromosomes)]
+        #print(df.shape)
         df['gene_id'] = df.attribute.str.extract(r'gene_id "([^;]*)";')
         df['transcript_id'] = df.attribute.str.extract(r'transcript_id "([^;]*)";')
 
@@ -162,8 +162,8 @@ rule filter_gtf:
             input[1], '\t', header=None, comment="#",
             names=['chromosome', 'source', 'feature', 'start', 'end', 'score', 'strand', 'frame', 'attribute'],
         )
-        print("subsetting chromosomes again")
-        SE_gtf = SE_gtf[SE_gtf.chromosome.isin(chromosomes)]
+        #print("subsetting chromosomes again")
+        #SE_gtf = SE_gtf[SE_gtf.chromosome.isin(chromosomes)]
         SE_gtf['gene_id'] = SE_gtf.attribute.str.extract(r'gene_id "([^;]*)";')
         SE_gtf['transcript_id'] = SE_gtf.attribute.str.extract(r'transcript_id "([^;]*)";')
 
@@ -974,7 +974,7 @@ rule dataset_results:
             if len(y_true) > 0:
                 auc = roc_auc_score(y_true, y_score)
             else:
-                auc = 0.5
+                auc = np.nan
             summary.append([method, auc])
         summary = pd.DataFrame(summary, columns=["Method", "AUC"])
         print(summary)
@@ -1011,60 +1011,23 @@ rule plot_overall_results:
     input:
         "output/results/summary.txt"
     output:
-        "output/results/all.pdf",
+        "output/results/relplot.pdf",
+        "output/results/relplot2.pdf",
     run:
         df = pd.read_csv(input[0], "\t")
-        df["Experiment"] = "None"
+        df["Experiment"] = "Normal"
         df.loc[df.Reference=="unannotated_1", "Experiment"] = "Unannotated"
         df.loc[df.bias=="cdnaf", "Experiment"] = "Coverage decay"
-        print(df.Experiment.value_counts())
-        #df = df.replace("unannotated_0", "Annotated")
-        #df = df.replace("unannotated_1", "Unannotated")
-        #df = df.replace("original_brie", "BRIE")
-        #df = df.replace("original_kallisto_permutation-Euclidean", "kallisto")
-        #df = df.replace("original_bins-nmf_permutation-Euclidean", "ODEGRfinder")
-        #df = df.replace("assembly-unguided-merged_exons_permutation-Euclidean", "Ours (reassembled exons)")
-        #df = df.replace("original_splicevi-gene_permutation-Euclidean", "Ours (introns gene)")
-        #df = df.replace("original_splicevi-transitive_permutation-Euclidean", "Ours (introns local)")
-        #df = df.replace("original_splicevi-nontransitive_permutation-Euclidean", "Alternative introns (ours)")
-        #df = df.replace("original_introns-shared-acceptor_permutation-Euclidean", "Alt. introns shared 3' (ours)")
 
-        #df = df[df.Method.str.startswith("Ours")]
-        #df = df[df.Method.isin(["BRIE", "kallisto", "ODEGRfinder", "Alternative introns (ours)"])]
-        #df = df[df.Method.isin(["BRIE", "kallisto", "ODEGRfinder", "Alt. introns shared 3' (ours)"])]
-        #df = df.rename(columns={"Reference": "DE transcript"})
-        #df = df[df.Method.isin(["BRIE", "kallisto", "ODEGRfinder", "Ours (reassembled exons)"])]
-
-        # fig, axarr = plt.subplots(len(coverages), len(size_fractions), figsize=(6*len(coverages), 6*len(size_fractions)))
-
-
-        #fig, axarr = plt.subplots(len(coverages), len(size_fractions), figsize=(5*len(coverages), 5*len(size_fractions)))
-        #for i, coverage in enumerate(coverages):
-        #    for j, size_fraction in enumerate(size_fractions):
-        #        g = sns.lineplot(
-        #            x="N cells", y="AUC", hue="Method", style="DE transcript",
-        #            ax=axarr[i,j],
-        #            data=df[(df.Coverage==coverage) & (df.size_fraction==size_fraction)],
-        #            legend="auto" if i==0 and j==len(size_fractions)-1 else False,
-        #            err_style="bars",
-        #        )
-        #        g.set(xticks=n_test_samples_per_group)
-        #        g.set(ylim=(0.0, 1))
-        #        g.set(title=f"Base cov. {coverage}X; Size_fraction {size_fraction}")
-        #        # g.despine(left=True)
-        #plt.legend(bbox_to_anchor=(1.01, 1),borderaxespad=0)
-        df["var_coeff"] = (1 + 1 / df.size_fraction).astype(int)
+        df["var_coeff"] = (1 + 1 / df.size_fraction).round(0).astype(int)
         print(df.var_coeff.unique())
         g = sns.relplot(
             data=df,
             x="N cells",
             y="AUC",
             hue="Method",
-            #style="DE transcript",
-            #style="bias",
             style="Experiment",
             col="var_coeff",
-            #col_order=[21, 10, 4],
             col_order=sorted(df.var_coeff.unique(), reverse=True),
             row="Coverage",
             facet_kws=dict(margin_titles=True),
@@ -1076,26 +1039,25 @@ rule plot_overall_results:
         g.set_titles(col_template="Variance = {col_name} * mean", row_template="Base coverage = {row_name}x")
         g.set(xticks=n_test_samples_per_group)
         plt.savefig(output[0], bbox_inches='tight')
-#
-#
-#rule plot_null_dist:
-#    input:
-#        expand("output/{{dataset}}/{{reference}}/differential_splicing/null/{method}/genes.tsv", method=methods)
-#    output:
-#        "output/{dataset}/{reference}/results/null/p_value_dist.pdf"
-#    run:
-#        plt.plot([0, 1], [0, 1], color="gray", linestyle="--")
-#        ax = plt.gca()
-#        for method in methods:
-#            path = f"output/{wildcards['dataset']}/{wildcards['reference']}/differential_splicing/null/{method}/genes.tsv"
-#            df = pd.read_csv(path, "\t")
-#            sns.ecdfplot(df.p_value_gene, ax=ax, label=method)
-#        plt.xlabel("p-value")
-#        plt.ylabel("cdf")
-#        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-#        plt.xlim([0, 1])
-#        plt.ylim([0, 1])
-#        plt.gca().set_aspect('equal', adjustable='box')
-#        plt.tight_layout()
-#        plt.draw()
-#        plt.savefig(output[0])
+
+        #df = df[(df.Coverage==1.0) & (df.var_coeff==8)]
+        df = df[(df.var_coeff==8)]
+        print(df.Coverage.value_counts())
+        print(df.var_coeff.value_counts())
+        g = sns.relplot(
+            data=df,
+            y="AUC",
+            hue="Method",
+            hue_order=methods,
+            x="N cells",
+            col="Experiment",
+            col_order=["Normal", "Unannotated", "Coverage decay"],
+            row="Coverage",
+            kind="line",
+            height=3,
+            aspect=1.0,
+            facet_kws=dict(margin_titles=True),
+        )
+        g.set_titles(row_template="Base coverage = {row_name}x")
+        g.set(xticks=n_test_samples_per_group)
+        plt.savefig(output[1], bbox_inches='tight')
