@@ -891,17 +891,18 @@ rule aggregate_diff_spl:
 
         if len(df) > 0:
             def multiple_testing_correction(p_values):
-                reject, pvals_corrected, _, _ = multipletests(
-                    p_values.values, 0.05, "fdr_bh"
-                )
-                res = np.min(pvals_corrected)
+                #reject, pvals_corrected, _, _ = multipletests(
+                #    p_values.values, 0.05, "fdr_bh"
+                #)
+                #res = np.min(pvals_corrected)
+                res = np.min(p_values)
                 return res
 
             res = df.groupby("gene_id").p_value.agg(multiple_testing_correction).to_frame().reset_index().rename(columns={"p_value": "p_value_gene"})
-            reject, pvals_corrected, _, _ = multipletests(
-                res.p_value_gene.values, 0.05, "fdr_bh"
-               )
-            res["p_value_gene_adj"] = pvals_corrected
+            #reject, pvals_corrected, _, _ = multipletests(
+            #    res.p_value_gene.values, 0.05, "fdr_bh"
+            #   )
+            res["p_value_gene_adj"] = res.p_value_gene
         else:
             res = pd.DataFrame(columns=["gene_id", "p_value_gene_adj"])
         res.to_csv(output[0], "\t", index=False)

@@ -173,7 +173,8 @@ cell_type_order = ["(1) pro-B", "(2) pre-B", "(3) immature B", "(4) naive B"]
 
 rule all:
     input:
-        "output/dimensionality_reduction/marrow/classification_score.svg",
+        expand("output/plots/{intron}.individual.svg", intron=introns_to_plot),
+        #"output/dimensionality_reduction/marrow/classification_score.svg",
         #expand('output/differential_splicing/functional_class/{functional_class}/plot_marker_intron_coordinates.tsv', functional_class=functional_classes),
         #expand('output/differential_splicing/functional_class/{functional_class}/marker_introns.svg', functional_class=functional_classes),
         #expand('output/differential_splicing/functional_class/endothelial/{tct}/splicing.clusters.tsv', tct=tcts_functional_class["endothelial"]),
@@ -226,7 +227,7 @@ rule all:
         #expand("output/differential_splicing/tissue_cell_type/{tct[0]}/{tct[1]}/summary.tsv", tct=tissue_cell_type_pairs),
         #"output/adata_cellxgene.h5ad",
         #expand("output/coverage_track/tct/{tct[0]}/{tct[1]}/coverage.bw", tct=tissue_cell_type_pairs_including_singletons),
-        "output/differential_splicing/tissue_cell_type/Marrow/merged_significant_all_genes.svg",
+        #"output/differential_splicing/tissue_cell_type/Marrow/merged_significant_all_genes.svg",
         #"output/dimensionality_reduction/marrow/classification_score.svg",
         #expand("output/plots/{gene}.svg", gene=genes_to_plot),
         #expand("output/plots/{intron}.svg", intron=introns_to_plot),
@@ -1265,60 +1266,113 @@ rule plot_significant:
 #            plt.savefig(output[i], bbox_inches='tight')
 #
 #
-#rule psi_plot_marrow_b:
-#    input:
-#        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
-#    output:
-#        expand("output/plots/{intron}.svg", intron=introns_to_plot),
-#    run:
-#        adata = anndata.read_h5ad(input[0])
-#        adata.obs = adata.obs.replace("late pro-B cell", "(1) pro-B")
-#        adata.obs = adata.obs.replace("precursor B cell", "(2) pre-B")
-#        adata.obs = adata.obs.replace("immature B cell", "(3) immature B")
-#        adata.obs = adata.obs.replace("naive B cell", "(4) naive B")
-#        print(adata.shape)
-#        adata.obs["Cell type"] = adata.obs.cell_ontology_class
-#        adata = adata[adata.obs["Cell type"].isin(cell_type_order)]
-#        print(adata.shape)
-#        X = group_normalize(adata.X.toarray(), adata.var.cluster.values, smooth=False)
-#        var = adata.var.copy()
-#        var["position"] = np.arange(len(var))
-#        var["id"] = var.chromosome.astype(str) + ":" + var.start.astype(str) + "-" + var.end.astype(str)
-#        var = var.set_index("id")
-#        for i, intron in enumerate(introns_to_plot):
-#            obs = adata.obs.copy()
-#            print("position: ", var.loc[intron].position)
-#            obs["PSI"] = X[:, var.loc[intron].position].ravel()
-#            print(obs.groupby("Cell type").PSI.mean())
-#            print(obs.PSI.isna().sum())
-#
-#            g = sns.FacetGrid(
-#                obs,
-#                col="Cell type",
-#                col_order=cell_type_order,
-#                hue="Cell type",
-#                hue_order=cell_type_order,
-#                palette="tab10",
-#                sharex=False,
-#                sharey=True,
-#                #height=1.5,
-#                height=2,
-#                aspect=1,
-#            )
-#            eps = 1e-4
-#            g.map_dataframe(
-#                sns.histplot,
-#                y="PSI",
-#                bins=np.linspace(0-eps, 1+eps, 11),
-#                stat="probability",
-#            )
-#            g.fig.subplots_adjust(wspace=0)
-#            g.set_titles(col_template="{col_name}")
-#            g.set_ylabels("PSI")
-#            g.set(xticks=[])
-#            g.set(xlim=(0, 1), ylim=(0, 1))
-#            sns.despine(bottom=True)
-#            plt.savefig(output[i], bbox_inches='tight')
+rule psi_plot_marrow_b:
+    input:
+        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+    output:
+        expand("output/plots/{intron}.svg", intron=introns_to_plot),
+        expand("output/plots/{intron}.individual.svg", intron=introns_to_plot),
+    run:
+        adata = anndata.read_h5ad(input[0])
+        adata.obs = adata.obs.replace("late pro-B cell", "(1) pro-B")
+        adata.obs = adata.obs.replace("precursor B cell", "(2) pre-B")
+        adata.obs = adata.obs.replace("immature B cell", "(3) immature B")
+        adata.obs = adata.obs.replace("naive B cell", "(4) naive B")
+        print(adata.shape)
+        adata.obs["Cell type"] = adata.obs.cell_ontology_class
+        adata = adata[adata.obs["Cell type"].isin(cell_type_order)]
+        print(adata.shape)
+        X = group_normalize(adata.X.toarray(), adata.var.cluster.values, smooth=False)
+        var = adata.var.copy()
+        var["position"] = np.arange(len(var))
+        var["id"] = var.chromosome.astype(str) + ":" + var.start.astype(str) + "-" + var.end.astype(str)
+        var = var.set_index("id")
+        for i, intron in enumerate(introns_to_plot):
+            obs = adata.obs.copy()
+            print("position: ", var.loc[intron].position)
+            obs["PSI"] = X[:, var.loc[intron].position].ravel()
+            print(obs.groupby("Cell type").PSI.mean())
+            print(obs.PSI.isna().sum())
+
+            g = sns.FacetGrid(
+                obs,
+                col="Cell type",
+                col_order=cell_type_order,
+                hue="Cell type",
+                hue_order=cell_type_order,
+                palette="tab10",
+                sharex=False,
+                sharey=True,
+                #height=1.5,
+                height=2,
+                aspect=1,
+            )
+            eps = 1e-4
+            g.map_dataframe(
+                sns.histplot,
+                y="PSI",
+                bins=np.linspace(0-eps, 1+eps, 11),
+                stat="probability",
+            )
+            g.fig.subplots_adjust(wspace=0)
+            g.set_titles(col_template="{col_name}")
+            g.set_xlabels("")
+            g.set_ylabels("PSI")
+            g.set(xticks=[])
+            g.set(xlim=(0, 1), ylim=(0, 1))
+            sns.despine(bottom=True)
+            plt.savefig(output[i], bbox_inches='tight')
+
+
+            obs["external_donor_name"] = obs["mouse.id"]
+            most_common_individuals = obs.external_donor_name.value_counts()[:8].index.tolist()
+            obs = obs[obs.external_donor_name.isin(most_common_individuals)]
+
+            for x in cell_type_order:
+                for y in most_common_individuals:
+                    mask = (obs["Cell type"] == x) & (obs.external_donor_name == y)
+                    print(x, y, obs.loc[mask, "PSI"].notna().sum())
+                    if obs.loc[mask, "PSI"].notna().sum() < 5:
+                        obs.loc[mask, "PSI"] = np.nan
+
+            print(obs.external_donor_name.value_counts())
+            g = sns.FacetGrid(
+                obs,
+                col="Cell type",
+                col_order=cell_type_order,
+                row="external_donor_name",
+                row_order=most_common_individuals,
+                hue="Cell type",
+                hue_order=cell_type_order,
+                palette="tab10",
+                sharex=False,
+                sharey=True,
+                #height=1.5,
+                height=1.5,
+                aspect=1.0,
+                margin_titles=True,
+            )
+            g.map_dataframe(
+                sns.histplot,
+                y="PSI",
+                bins=np.linspace(0-eps, 1+eps, 11),
+                stat="probability",
+            )
+            for ax in g.axes.flat:
+                if len(ax.patches) == 0:
+                    #ax.set_visible(False)
+                    ax.text(0.5, 0.5, "N/A")
+            #raise Exception("debug")
+            g.fig.subplots_adjust(wspace=0.1, hspace=0.1)
+            g.set_titles(col_template="{col_name}", row_template="{row_name}")
+            g.set_xlabels("")
+            g.set_ylabels("PSI")
+            g.set(xticks=[])
+            g.set(xlim=(0, 1), ylim=(0, 1))
+            #sns.despine(bottom=True)
+            sns.despine()
+            plt.savefig(output[i+len(introns_to_plot)], bbox_inches='tight')
+            plt.close()
 #
 #
 #rule exp_plot_marrow_b:
