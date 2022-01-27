@@ -160,7 +160,8 @@ labels = ["Cell type", "mouse.id", "sex", "plate_id", "tissue"]
 
 
 introns_to_plot = [
-    "chr6:99260420-99266347",
+    "chr6:99260420-99266347",  # Foxp1
+    "chr9:21626013-21632805"
 ]
 
 genes_to_plot = [
@@ -173,7 +174,8 @@ cell_type_order = ["(1) pro-B", "(2) pre-B", "(3) immature B", "(4) naive B"]
 
 rule all:
     input:
-        expand("output/plots/{intron}.individual.svg", intron=introns_to_plot),
+        "output/plots/tissues_per_donor.pdf",
+        #expand("output/plots/{intron}.individual.svg", intron=introns_to_plot),
         #"output/dimensionality_reduction/marrow/classification_score.svg",
         #expand('output/differential_splicing/functional_class/{functional_class}/plot_marker_intron_coordinates.tsv', functional_class=functional_classes),
         #expand('output/differential_splicing/functional_class/{functional_class}/marker_introns.svg', functional_class=functional_classes),
@@ -3306,3 +3308,17 @@ rule make_latex_table_intron_coordinates_anything:
         table = coordinate_id_mapping.filter(items=["Intron id", "Intron coordinate"])
         table.sort_values("Intron id").to_latex(output[0], index=False)
         table.sort_values("Intron id").to_csv(output[1], sep="\t", index=False)
+
+
+rule plot_tissues_per_donor:
+    output:
+        "output/plots/tissues_per_donor.pdf",
+    run:
+        tissues = sorted(sample_info.tissue.unique())
+        print(tissues)
+        #res = sample_info[~sample_info["mouse.id"].str.contains("/")].groupby("mouse.id").tissue.agg(lambda ts: (ts.value_counts().reindex(tissues).fillna(0) > 0).values.tolist())
+        #df = sample_info[~sample_info["mouse.id"].str.contains("/")].groupby("mouse.id").tissue.agg(lambda ts: ts.value_counts().reindex(tissues).fillna(0).astype(int).values.tolist()).to_frame()
+        df = pd.pivot_table(sample_info[~sample_info["mouse.id"].str.contains("/")], index="tissue", columns="mouse.id", values="cell_ontology_class", aggfunc=len).fillna(0).astype(int)
+        print(df)
+        sns.heatmap(df, cbar_kws={'label': 'Number of cells'}, square=True)
+        plt.savefig(output[0], bbox_inches='tight')
