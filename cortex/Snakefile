@@ -126,10 +126,12 @@ motif3_rc = str(Seq(motif3).reverse_complement())
 cell_type_order = ["L5 IT", "L2/3 IT", "L6 IT", "L6 CT", "L6b", "L5/6 NP", "Pvalb", "Sst", "Vip", "Lamp5"]
 
 introns_to_plot = [
-    #"chr17:90597630-90620865",  # Nrxn1
-    "chr16:5763912-6173605",  # Rbfox1
-    #"chr5:64095936-64096979",  # Pgm2
-    "chr15:68929658-68995052",  # Khdrbs3
+    "chr17:90597630-90623420",  # Nrxn1_8067
+    "chr16:5763912-6173605",  # Rbfox1_26172
+    "chr5:64095936-64096979",  # Pgm2_32951
+    "chr15:68929658-68995052",  # Khdrbs3_25689
+    "chr14:120396605-120404638",  # Mbnl2_25376
+    "chr14:120396605-120428935",  # Mbnl2_25378
 ]
 
 genes_to_plot = [
@@ -147,7 +149,7 @@ quantifications_gaba_subset = ["gene-expression", "kallisto", "bins", "exons", "
 
 rule all:
     input:
-        'output/plots/marker_genes.svg',
+        #'output/plots/marker_genes.pdf',
         #"output/dimensionality_reduction/classification_score.svg",
         #"output/diff_spl/subclass_label/merged_significant_all_genes.svg",
         #expand("output/bam_regions/Mbnl2/{cell_type}/merged.bam", cell_type=genes_bam_merge["Mbnl2"]["cell_types"]),
@@ -188,7 +190,7 @@ rule all:
         #"output/quantification/introns-transitive-shuffled/adata_annotated.h5ad",
         #"output/dimensionality_reduction/classification_score.svg",
         #expand("output/plots/{gene}.svg", gene=genes_to_plot),
-        #expand("output/plots/{intron}.individual.svg", intron=introns_to_plot),
+        expand("output/plots/{intron}.pdf", intron=introns_to_plot),
         #"output/comparison/shuffled/cell_type.pdf",
         #"output/comparison/exp_spl/cell_type.svg",
         #"output/diff_spl/subclass_label/merged_significant_all.svg",
@@ -879,15 +881,11 @@ rule psi_plot:
     input:
         "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
     output:
-        expand("output/plots/{intron}.svg", intron=introns_to_plot),
-        expand("output/plots/{intron}.individual.svg", intron=introns_to_plot),
+        expand("output/plots/{intron}.pdf", intron=introns_to_plot),
     run:
         adata = anndata.read_h5ad(input[0])
-        print(adata.var.iloc[8066])
-        print(adata.shape)
         adata.obs["Cell type"] = sample_info.subclass_label.str.replace("_", " ").str.replace("slash", "/")
         adata = adata[adata.obs["Cell type"].isin(cell_type_order)]
-        print(adata.shape)
         X = group_normalize(adata.X.toarray(), adata.var.cluster.values, smooth=False)
         var = adata.var.copy()
         var["position"] = np.arange(len(var))
@@ -895,55 +893,23 @@ rule psi_plot:
         var = var.set_index("id")
         for i, intron in enumerate(introns_to_plot):
             obs = adata.obs.copy()
-            print("position: ", var.loc[intron].position)
             obs["PSI"] = X[:, var.loc[intron].position].ravel()
-            print(obs.groupby("Cell type").PSI.mean())
-            print(obs.PSI.isna().sum())
-
-            g = sns.FacetGrid(
-                obs,
-                col="Cell type",
-                col_order=cell_type_order,
-                hue="Cell type",
-                hue_order=cell_type_order,
-                palette="tab10",
-                sharex=False,
-                sharey=True,
-                #height=1.5,
-                height=1.5,
-                aspect=0.45,
-            )
             eps = 1e-4
-            g.map_dataframe(
-                sns.histplot,
-                y="PSI",
-                bins=np.linspace(0-eps, 1+eps, 11),
-                stat="probability",
-            )
-            g.fig.subplots_adjust(wspace=0.1)
-            g.set_titles(col_template="{col_name}")
-            g.set_xlabels("")
-            g.set_ylabels("PSI")
-            g.set(xticks=[])
-            g.set(xlim=(0, 1), ylim=(0, 1))
-            #sns.despine(bottom=True)
-            sns.despine()
-            plt.savefig(output[i], bbox_inches='tight')
-            plt.close()
 
+            obs_all = obs.copy()
+            obs_all.external_donor_name = "All"
             most_common_individuals = obs.external_donor_name.value_counts()[:6].index.tolist()
             most_common_individuals = np.array(most_common_individuals)[[0, 2, 5, 1, 3, 4]].tolist()
-            print(most_common_individuals)
             obs = obs[obs.external_donor_name.isin(most_common_individuals)]
+            obs = pd.concat([obs_all, obs], ignore_index=True)
+            most_common_individuals = ["All"] + most_common_individuals
 
             for x in cell_type_order:
                 for y in most_common_individuals:
                     mask = (obs["Cell type"] == x) & (obs.external_donor_name == y)
-                    print(x, y, obs.loc[mask, "PSI"].notna().sum())
                     if obs.loc[mask, "PSI"].notna().sum() < 3:
                         obs.loc[mask, "PSI"] = np.nan
 
-            print(obs.external_donor_name.value_counts())
             g = sns.FacetGrid(
                 obs,
                 col="Cell type",
@@ -953,9 +919,9 @@ rule psi_plot:
                 hue="Cell type",
                 hue_order=cell_type_order,
                 palette="tab10",
-                sharex=False,
+                sharex=True,
                 sharey=True,
-                height=1.0,
+                height=0.8,
                 aspect=1.0,
                 margin_titles=True,
             )
@@ -963,22 +929,20 @@ rule psi_plot:
                 sns.histplot,
                 y="PSI",
                 bins=np.linspace(0-eps, 1+eps, 11),
-                stat="probability",
+                stat="proportion",
             )
             for ax in g.axes.flat:
                 if len(ax.patches) == 0:
-                    #ax.set_visible(False)
                     ax.text(0.5, 0.5, "N/A")
-            #raise Exception("debug")
-            g.fig.subplots_adjust(wspace=0.1, hspace=0.15)
-            g.set_titles(col_template="{col_name}", row_template="{row_name}")
-            g.set_xlabels("")
+            g.fig.subplots_adjust(wspace=0.25, hspace=0.25)
+            g.set_titles(col_template="{col_name}", row_template="Donor:\n{row_name}")
+            #g.set_xlabels("")
+            g.set_xlabels("Freq.")
             g.set_ylabels("PSI")
-            g.set(xticks=[])
+            #g.set(xticks=[])
             g.set(xlim=(0, 1), ylim=(0, 1))
-            #sns.despine(bottom=True)
             sns.despine()
-            plt.savefig(output[i+len(introns_to_plot)], bbox_inches='tight')
+            plt.savefig(output[i], bbox_inches='tight')
             plt.close()
 #
 #
@@ -2694,7 +2658,7 @@ rule plot_marker_genes_subclass:
         "output/gene_name.txt",
         expand('output/diff_spl/subclass_label/{subclass_label}/expression.tsv', subclass_label=subclass_labels),
     output:
-        'output/plots/marker_genes.svg',
+        'output/plots/marker_genes.pdf',
     run:
         i = 0
         all_marker_genes = []
@@ -2736,13 +2700,13 @@ rule plot_marker_genes_subclass:
         df[adata_exp.var.index.values] = adata_exp.X
         df = df.groupby("Cell type").mean().loc[cell_type_order]
         df.index.name = None
-        width,height = 3,9
+        width,height = 10, 20
         fig, ax = plt.subplots(figsize=(width,height))
         ax = sns.heatmap(
             df.T,
             cmap="viridis",
-            #vmin=0.0, vmax=2.2,
-            robust=True,
+            vmin=0.0, vmax=0.1,
+            #robust=True,
             ax=ax,
             square=True,
             cbar_kws={'label': 'Mean expression', "location": "top", "shrink": 0.5},

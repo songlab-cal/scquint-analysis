@@ -160,8 +160,13 @@ labels = ["Cell type", "mouse.id", "sex", "plate_id", "tissue"]
 
 
 introns_to_plot = [
-    "chr6:99260420-99266347",  # Foxp1
-    "chr9:21626013-21632805"
+    "chr6:99260420-99266347",  # Foxp1_11076
+    "chr9:21626013-21632805",  # Smarca4_28720
+]
+
+introns_to_plot_epithelial = [
+    "chr6:108493894-108499108",  # Itpr1_26257
+    "chr5:30927157-30928443",  # Khk_24896
 ]
 
 genes_to_plot = [
@@ -174,8 +179,10 @@ cell_type_order = ["(1) pro-B", "(2) pre-B", "(3) immature B", "(4) naive B"]
 
 rule all:
     input:
-        "output/plots/tissues_per_donor.pdf",
-        #expand("output/plots/{intron}.individual.svg", intron=introns_to_plot),
+        #"output/plots/marrow_b_n_events.svg",
+        #"output/plots/tissues_per_donor.pdf",
+        #expand("output/plots/{intron}.pdf", intron=introns_to_plot),
+        expand("output/plots/epithelial/{intron}.pdf", intron=introns_to_plot_epithelial),
         #"output/dimensionality_reduction/marrow/classification_score.svg",
         #expand('output/differential_splicing/functional_class/{functional_class}/plot_marker_intron_coordinates.tsv', functional_class=functional_classes),
         #expand('output/differential_splicing/functional_class/{functional_class}/marker_introns.svg', functional_class=functional_classes),
@@ -1272,18 +1279,15 @@ rule psi_plot_marrow_b:
     input:
         "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
     output:
-        expand("output/plots/{intron}.svg", intron=introns_to_plot),
-        expand("output/plots/{intron}.individual.svg", intron=introns_to_plot),
+        expand("output/plots/{intron}.pdf", intron=introns_to_plot),
     run:
         adata = anndata.read_h5ad(input[0])
         adata.obs = adata.obs.replace("late pro-B cell", "(1) pro-B")
         adata.obs = adata.obs.replace("precursor B cell", "(2) pre-B")
         adata.obs = adata.obs.replace("immature B cell", "(3) immature B")
         adata.obs = adata.obs.replace("naive B cell", "(4) naive B")
-        print(adata.shape)
         adata.obs["Cell type"] = adata.obs.cell_ontology_class
         adata = adata[adata.obs["Cell type"].isin(cell_type_order)]
-        print(adata.shape)
         X = group_normalize(adata.X.toarray(), adata.var.cluster.values, smooth=False)
         var = adata.var.copy()
         var["position"] = np.arange(len(var))
@@ -1291,53 +1295,24 @@ rule psi_plot_marrow_b:
         var = var.set_index("id")
         for i, intron in enumerate(introns_to_plot):
             obs = adata.obs.copy()
-            print("position: ", var.loc[intron].position)
             obs["PSI"] = X[:, var.loc[intron].position].ravel()
-            print(obs.groupby("Cell type").PSI.mean())
-            print(obs.PSI.isna().sum())
-
-            g = sns.FacetGrid(
-                obs,
-                col="Cell type",
-                col_order=cell_type_order,
-                hue="Cell type",
-                hue_order=cell_type_order,
-                palette="tab10",
-                sharex=False,
-                sharey=True,
-                #height=1.5,
-                height=2,
-                aspect=1,
-            )
             eps = 1e-4
-            g.map_dataframe(
-                sns.histplot,
-                y="PSI",
-                bins=np.linspace(0-eps, 1+eps, 11),
-                stat="probability",
-            )
-            g.fig.subplots_adjust(wspace=0)
-            g.set_titles(col_template="{col_name}")
-            g.set_xlabels("")
-            g.set_ylabels("PSI")
-            g.set(xticks=[])
-            g.set(xlim=(0, 1), ylim=(0, 1))
-            sns.despine(bottom=True)
-            plt.savefig(output[i], bbox_inches='tight')
-
 
             obs["external_donor_name"] = obs["mouse.id"]
-            most_common_individuals = obs.external_donor_name.value_counts()[:8].index.tolist()
+
+            obs_all = obs.copy()
+            obs_all.external_donor_name = "All"
+            most_common_individuals = obs.external_donor_name.value_counts()[:6].index.tolist()
             obs = obs[obs.external_donor_name.isin(most_common_individuals)]
+            obs = pd.concat([obs_all, obs], ignore_index=True)
+            most_common_individuals = ["All"] + most_common_individuals
 
             for x in cell_type_order:
                 for y in most_common_individuals:
                     mask = (obs["Cell type"] == x) & (obs.external_donor_name == y)
-                    print(x, y, obs.loc[mask, "PSI"].notna().sum())
-                    if obs.loc[mask, "PSI"].notna().sum() < 5:
+                    if obs.loc[mask, "PSI"].notna().sum() < 3:
                         obs.loc[mask, "PSI"] = np.nan
 
-            print(obs.external_donor_name.value_counts())
             g = sns.FacetGrid(
                 obs,
                 col="Cell type",
@@ -1347,9 +1322,8 @@ rule psi_plot_marrow_b:
                 hue="Cell type",
                 hue_order=cell_type_order,
                 palette="tab10",
-                sharex=False,
+                sharex=True,
                 sharey=True,
-                #height=1.5,
                 height=1.5,
                 aspect=1.0,
                 margin_titles=True,
@@ -1358,22 +1332,99 @@ rule psi_plot_marrow_b:
                 sns.histplot,
                 y="PSI",
                 bins=np.linspace(0-eps, 1+eps, 11),
-                stat="probability",
+                stat="proportion",
             )
             for ax in g.axes.flat:
                 if len(ax.patches) == 0:
-                    #ax.set_visible(False)
                     ax.text(0.5, 0.5, "N/A")
-            #raise Exception("debug")
-            g.fig.subplots_adjust(wspace=0.1, hspace=0.1)
-            g.set_titles(col_template="{col_name}", row_template="{row_name}")
-            g.set_xlabels("")
+            g.fig.subplots_adjust(wspace=0.25, hspace=0.25)
+            g.set_titles(col_template="{col_name}", row_template="Donor:\n{row_name}")
+            g.set_xlabels("Freq.")
             g.set_ylabels("PSI")
-            g.set(xticks=[])
             g.set(xlim=(0, 1), ylim=(0, 1))
-            #sns.despine(bottom=True)
             sns.despine()
-            plt.savefig(output[i+len(introns_to_plot)], bbox_inches='tight')
+            plt.savefig(output[i], bbox_inches='tight')
+            plt.close()
+
+
+rule psi_plot_epithelial:
+    input:
+        "output/quantification/introns-shared-acceptor/adata_annotated.h5ad",
+    output:
+        expand("output/plots/epithelial/{intron}.pdf", intron=introns_to_plot_epithelial),
+    run:
+        adata = anndata.read_h5ad(input[0])
+
+        adata.obs["tct"] = adata.obs.tissue.astype(str) + "." + sample_info.cell_type.astype(str)
+        tct_order = ["bladder\nurothelial", "skin\nepidermal", "large intestine\ngoblet", "large intestine\nepithelial", "large intestine\nenterocyte", "mammary gland\nepithelial", "large intestine\nsecretory", "kidney\nepithelial"]
+        adata.obs.tct = adata.obs.tct.replace('Bladder.bladder_urothelial_cell', "bladder\nurothelial")
+        adata.obs.tct = adata.obs.tct.replace('Skin.epidermal_cell', "skin\nepidermal")
+        adata.obs.tct = adata.obs.tct.replace('Large_Intestine.large_intestine_goblet_cell', "large intestine\ngoblet")
+        adata.obs.tct = adata.obs.tct.replace('Large_Intestine.epithelial_cell_of_large_intestine', "large intestine\nepithelial")
+        adata.obs.tct = adata.obs.tct.replace('Large_Intestine.enterocyte_of_epithelium_of_large_intestine', "large intestine\nenterocyte")
+        adata.obs.tct = adata.obs.tct.replace('Mammary_Gland.luminal_epithelial_cell_of_mammary_gland', "mammary gland\nepithelial")
+        adata.obs.tct = adata.obs.tct.replace('Large_Intestine.secretory_cell', "large intestine\nsecretory")
+        adata.obs.tct = adata.obs.tct.replace('Kidney.kidney_collecting_duct_epithelial_cell', "kidney\nepithelial")
+
+        adata = adata[adata.obs.tct.isin(tct_order)]
+        print(adata.obs["mouse.id"].value_counts())
+
+        X = group_normalize(adata.X.toarray(), adata.var.cluster.values, smooth=False)
+        var = adata.var.copy()
+        var["position"] = np.arange(len(var))
+        var["id"] = var.chromosome.astype(str) + ":" + var.start.astype(str) + "-" + var.end.astype(str)
+        var = var.set_index("id")
+        for i, intron in enumerate(introns_to_plot_epithelial):
+            obs = adata.obs.copy()
+            obs["PSI"] = X[:, var.loc[intron].position].ravel()
+            eps = 1e-4
+
+            obs["external_donor_name"] = obs["mouse.id"]
+
+            obs_all = obs.copy()
+            obs_all.external_donor_name = "All"
+            most_common_individuals = obs.external_donor_name.value_counts()[:6].index.tolist()
+            obs = obs[obs.external_donor_name.isin(most_common_individuals)]
+            obs = pd.concat([obs_all, obs], ignore_index=True)
+            most_common_individuals = ["All"] + most_common_individuals
+
+            for x in tct_order:
+                for y in most_common_individuals:
+                    mask = (obs.tct == x) & (obs.external_donor_name == y)
+                    if obs.loc[mask, "PSI"].notna().sum() < 3:
+                        obs.loc[mask, "PSI"] = np.nan
+
+            g = sns.FacetGrid(
+                obs,
+                col="tct",
+                col_order=tct_order,
+                row="external_donor_name",
+                row_order=most_common_individuals,
+                #hue="Cell type",
+                #hue_order=cell_type_order,
+                palette="tab10",
+                sharex=True,
+                sharey=True,
+                height=1.5,
+                aspect=1.0,
+                margin_titles=True,
+            )
+            g.map_dataframe(
+                sns.histplot,
+                y="PSI",
+                bins=np.linspace(0-eps, 1+eps, 11),
+                stat="proportion",
+            )
+            for ax in g.axes.flat:
+                if len(ax.patches) == 0:
+                    ax.text(0.5, 0.5, "N/A")
+            g.fig.subplots_adjust(wspace=0.25, hspace=0.25)
+            g.set_titles(col_template="{col_name}", row_template="Donor:\n{row_name}")
+            g.set_xlabels("Freq.")
+            g.set_ylabels("PSI")
+            g.set(xlim=(0, 1), ylim=(0, 1))
+            sns.despine()
+            plt.savefig(output[i], bbox_inches='tight')
             plt.close()
 #
 #
@@ -3321,4 +3372,22 @@ rule plot_tissues_per_donor:
         df = pd.pivot_table(sample_info[~sample_info["mouse.id"].str.contains("/")], index="tissue", columns="mouse.id", values="cell_ontology_class", aggfunc=len).fillna(0).astype(int)
         print(df)
         sns.heatmap(df, cbar_kws={'label': 'Number of cells'}, square=True)
+        plt.savefig(output[0], bbox_inches='tight')
+
+
+rule plot_marker_introns_trajectory_marrow_b:
+    input:
+        expand('output/differential_splicing/marrow_b/{cell_type}/splicing.clusters.significant.tsv', cell_type=cell_type_order),
+    output:
+        "output/plots/marrow_b_n_events.svg",
+    run:
+        df = pd.DataFrame({
+            "Cell type": cell_type_order,
+            "Diff. spl. events": [pd.read_csv(path, "\t").shape[0] for path in input],
+        })
+        plt.figure(figsize=(2, 2))
+        sns.barplot(data=df, x="Cell type", y="Diff. spl. events")
+        plt.xticks(rotation=45, ha="right")
+        plt.xlabel("")
+        sns.despine()
         plt.savefig(output[0], bbox_inches='tight')
