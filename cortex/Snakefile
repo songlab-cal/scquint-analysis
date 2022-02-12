@@ -149,6 +149,10 @@ quantifications_gaba_subset = ["gene-expression", "kallisto", "bins", "exons", "
 
 rule all:
     input:
+        'output/plots/null_qq.svg',
+        "output/plots/diff_spl_runtime.svg",
+        "output/plots/quant_runtime.svg",
+        #"output/plots/cells_per_donor.pdf",
         #'output/plots/marker_genes.pdf',
         #"output/dimensionality_reduction/classification_score.svg",
         #"output/diff_spl/subclass_label/merged_significant_all_genes.svg",
@@ -190,7 +194,7 @@ rule all:
         #"output/quantification/introns-transitive-shuffled/adata_annotated.h5ad",
         #"output/dimensionality_reduction/classification_score.svg",
         #expand("output/plots/{gene}.svg", gene=genes_to_plot),
-        expand("output/plots/{intron}.pdf", intron=introns_to_plot),
+        #expand("output/plots/{intron}.pdf", intron=introns_to_plot),
         #"output/comparison/shuffled/cell_type.pdf",
         #"output/comparison/exp_spl/cell_type.svg",
         #"output/diff_spl/subclass_label/merged_significant_all.svg",
@@ -2047,63 +2051,63 @@ rule psi_plot:
 #        "python -m scquint.quantification.run introns/Snakefile --cores {threads} -q -d output/quantification/introns-subset-lc/ --config min_cells_per_intron=30 bam_paths=../../bam_paths_subset_lc.txt chromosomes_path=../../chromosomes.txt fasta_path={genome_fasta_path} gtf_path={full_gtf_path} chrom_sizes_path={chrom_sizes_path} sjdb_path={sjdb_path}"
 #
 #
-#rule plot_dist_under_null_comparison:
-#    input:
-#        "output/quantification/leafcutter/_cluster_significance.txt",
-#        'output/diff_spl/null/splicing.clusters.tsv',
-#    output:
-#        'output/quantification/leafcutter/null_cdf.pdf',
-#        'output/quantification/leafcutter/null_qq.pdf',
-#    run:
-#        df1 = pd.read_csv(input[0], "\t")
-#        df1 = df1[df1.status=="Success"]
-#        df2 = pd.read_csv(input[1], "\t")
-#        print(df1.shape, df2.shape)
-#
-#        plt.plot([0, 1], [0, 1], color="gray", linestyle="--")
-#        ax = plt.gca()
-#        sns.ecdfplot(df1.p, ax=ax, label="LeafCutter")
-#        sns.ecdfplot(df2.p_value, ax=ax, label="scQuint")
-#        plt.legend()
-#        plt.xlabel("p-value")
-#        plt.ylabel("cdf")
-#        plt.xlim([0, 1])
-#        plt.ylim([0, 1])
-#        plt.gca().set_aspect('equal', adjustable='box')
-#        plt.tight_layout()
-#        plt.draw()
-#        plt.savefig(output[0], bbox_inches='tight')
-#        plt.close()
-#
-#        np.random.seed(42)
-#        uniform_p_values = np.random.uniform(size=1000000)
-#        def get_quantiles(p_values):
-#            scores = -np.log10(p_values)
-#            quantiles = np.quantile(scores, q=np.linspace(0, 1, 1000)[1:-1])
-#            return quantiles
-#
-#        quantiles_theoretical = get_quantiles(uniform_p_values)
-#        quantiles_leafcutter = get_quantiles(df1.p.values)
-#        quantiles_scquint = get_quantiles(df2.p_value.values)
-#
-#        min_val = 0.0
-#        max_val = np.max(quantiles_theoretical)
-#
-#        plt.plot([0, max_val], [0, max_val], color="gray", linestyle="--")
-#
-#        plt.scatter(quantiles_theoretical, quantiles_leafcutter, label="LeafCutter")
-#        plt.scatter(quantiles_theoretical, quantiles_scquint, label="scQuint")
-#        plt.legend()
-#        plt.xlabel(r"Theoretical $-\log_{10}\ p$ quantile")
-#        plt.ylabel(r"Observed $-\log_{10}\ p$ quantile")
-#        #plt.ylabel("cdf")
-#        #plt.xlim([0, 1])
-#        #plt.ylim([0, 1])
-#        plt.gca().set_aspect('equal', adjustable='box')
-#        plt.tight_layout()
-#        plt.draw()
-#        plt.savefig(output[1], bbox_inches='tight')
-#        plt.close()
+rule plot_dist_under_null_comparison:
+    input:
+        "output/quantification/leafcutter/_cluster_significance.txt",
+        'output/diff_spl/null/splicing.clusters.tsv',
+    output:
+        'output/plots/null_cdf.svg',
+        'output/plots/null_qq.svg',
+    run:
+        df1 = pd.read_csv(input[0], "\t")
+        df1 = df1[df1.status=="Success"]
+        df2 = pd.read_csv(input[1], "\t")
+        print(df1.shape, df2.shape)
+
+        plt.plot([0, 1], [0, 1], color="gray", linestyle="--")
+        ax = plt.gca()
+        sns.ecdfplot(df2.p_value, ax=ax, label="scQuint")
+        sns.ecdfplot(df1.p, ax=ax, label="LeafCutter")
+        plt.legend()
+        plt.xlabel("p-value")
+        plt.ylabel("cdf")
+        plt.xlim([0, 1])
+        plt.ylim([0, 1])
+        plt.gca().set_aspect('equal', adjustable='box')
+        plt.tight_layout()
+        plt.draw()
+        plt.savefig(output[0], bbox_inches='tight')
+        plt.close()
+
+        np.random.seed(42)
+        uniform_p_values = np.random.uniform(size=1000000)
+        def get_quantiles(p_values):
+            scores = -np.log10(p_values)
+            quantiles = np.quantile(scores, q=np.linspace(0, 1, 1000)[1:-1])
+            return quantiles
+
+        quantiles_theoretical = get_quantiles(uniform_p_values)
+        quantiles_leafcutter = get_quantiles(df1.p.values)
+        quantiles_scquint = get_quantiles(df2.p_value.values)
+
+        min_val = 0.0
+        max_val = np.max(quantiles_theoretical)
+
+        plt.plot([0, max_val], [0, max_val], color="gray", linestyle="--")
+
+        plt.scatter(quantiles_theoretical, quantiles_scquint, label="scQuint")
+        plt.scatter(quantiles_theoretical, quantiles_leafcutter, label="LeafCutter")
+        plt.legend()
+        plt.xlabel(r"Theoretical $-\log_{10}\ p$ quantile")
+        plt.ylabel(r"Observed $-\log_{10}\ p$ quantile")
+        #plt.ylabel("cdf")
+        #plt.xlim([0, 1])
+        #plt.ylim([0, 1])
+        plt.gca().set_aspect('equal', adjustable='box')
+        plt.tight_layout()
+        plt.draw()
+        plt.savefig(output[1], bbox_inches='tight')
+        plt.close()
 #
 #
 #rule make_intron_ids:
@@ -2716,3 +2720,61 @@ rule plot_marker_genes_subclass:
         plt.xticks(rotation=90)
         plt.yticks(rotation=0)
         ax.get_figure().savefig(output[0], bbox_inches='tight')
+
+
+rule plot_cells_per_donor:
+    output:
+        "output/plots/cells_per_donor.pdf",
+    run:
+        cell_types = ["L5 IT", "L2/3 IT", "L6 IT", "L6 CT", "L6b", "L5/6 NP", "Pvalb", "Sst", "Vip", "Lamp5", "Sncg"]
+        df = pd.pivot_table(sample_info, index="Cell type", columns="external_donor_name", values="subclass_label", aggfunc=len).fillna(0).astype(int)
+        print(df)
+        external_donor_name_order = sample_info.external_donor_name.value_counts().index.values
+        df = df.loc[cell_types, external_donor_name_order]
+        print(df)
+        plt.figure(figsize=(20, 8))
+        sns.heatmap(df, cbar_kws={'label': 'Number of cells'}, square=True)
+        plt.savefig(output[0], bbox_inches='tight')
+
+
+rule plot_quant_runtime:
+    output:
+        "output/plots/quant_runtime.svg",
+    run:
+        df = pd.DataFrame(
+            data=[
+                ["scQuint", 1000, 9],
+                ["scQuint", 3000, 25],
+                ["scQuint", 6220, 55],
+                ["LeafCutter", 1000, 57],
+                ["LeafCutter", 3000, 175],
+                ["LeafCutter", 6220, 440],
+            ],
+            columns=["method", "# cells", "time (min)"],
+        )
+        df["time (h)"] = df["time (min)"] / 60.0
+        plt.figure(figsize=(3, 3))
+        sns.lineplot(data=df, x="# cells", y="time (h)", hue="method", markers=True)
+        plt.savefig(output[0], bbox_inches='tight')
+
+
+rule plot_diff_spl_runtime:
+    output:
+        "output/plots/diff_spl_runtime.svg",
+        "output/plots/diff_spl_memory.svg",
+    run:
+        df = pd.DataFrame(
+            data=[
+                ["scQuint", 5, 4],
+                ["LeafCutter", 17, 17],
+            ],
+            columns=["method", "time (min)", "memory (GB)"],
+        )
+        plt.figure(figsize=(3, 3))
+        sns.barplot(data=df, x="method", y="time (min)")
+        plt.savefig(output[0], bbox_inches='tight')
+        plt.close()
+
+        plt.figure(figsize=(3, 3))
+        sns.barplot(data=df, x="method", y="memory (GB)")
+        plt.savefig(output[1], bbox_inches='tight')
