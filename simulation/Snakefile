@@ -1016,7 +1016,7 @@ rule plot_overall_results:
         "output/results/relplot2.pdf",
     run:
         df = pd.read_csv(input[0], "\t")
-        df["Experiment"] = "Normal"
+        df["Experiment"] = "Even coverage"
         df.loc[df.Reference=="unannotated_1", "Experiment"] = "Unannotated"
         df.loc[df.bias=="cdnaf", "Experiment"] = "Coverage decay"
 
@@ -1052,7 +1052,7 @@ rule plot_overall_results:
             hue_order=methods,
             x="N cells",
             col="Experiment",
-            col_order=["Normal", "Unannotated", "Coverage decay"],
+            col_order=["Even coverage", "Unannotated", "Coverage decay"],
             row="Coverage",
             kind="line",
             height=3,
