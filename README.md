@@ -23,5 +23,5 @@ Our results:
 - [AnnData data objects](https://figshare.com/articles/dataset/scQuint_data_objects_-_Mouse_primary_motor_cortex_BICCN_/14471754)
 
 ### Citation
-Benegas, G., Fischer, J., Song., Y.S. Robust and annotation-free analysis of alternative splicing across diverse cell types in mice. 
-[bioRxiv preprint.](https://doi.org/10.1101/2021.04.27.441683)
+Benegas, G., Fischer, J., Song., Y.S. Robust and annotation-free analysis of alternative splicing across diverse cell types in mice. eLife 2022;11:e73520  
+DOI: [10.7554/eLife.73520](https://doi.org/10.7554/eLife.73520)
